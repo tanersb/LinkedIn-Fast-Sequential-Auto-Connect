@@ -1,1 +1,84 @@
+// ==UserScript==
+// @name         LinkedIn Fast Sequential Auto Connect
+// @namespace    https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect
+// @version      1.1.0
+// @description  Sequential fast auto-connection sender for LinkedIn. Skips note popup automatically.
+// @author       TanerSB
+// @match        https://www.linkedin.com/*
+// @updateURL    https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js
+// @downloadURL  https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js
+// @grant        none
+// ==/UserScript==
 
+/*
+    LinkedIn Fast Sequential Auto Connect
+    ------------------------------------
+    Author  : TanerSB
+    Repo    : https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect
+    License : MIT
+*/
+
+(function () {
+    let running = false;
+    let queue = [];
+    let busy = false;
+
+    function collect() {
+        queue = [...document.querySelectorAll('span')]
+            .filter(el => el.textContent.trim() === "Bağlantı kur");
+    }
+
+    function step() {
+        if (!running || busy || queue.length === 0) return;
+        busy = true;
+
+        const btn = queue.shift();
+        btn.click();
+
+        const t0 = performance.now();
+
+        const check = setInterval(() => {
+            const send = [...document.querySelectorAll('span')]
+                .find(el => el.textContent.trim() === "Not olmadan gönderin");
+
+            if (send) {
+                send.click();
+                clearInterval(check);
+                busy = false;
+                step();
+            } else if (performance.now() - t0 > 30) {
+                clearInterval(check);
+                busy = false;
+                step();
+            }
+        }, 40);
+    }
+
+    function start() {
+        if (running) return;
+        running = true;
+        collect();
+        step();
+    }
+
+    function stop() {
+        running = false;
+        queue = [];
+        busy = false;
+    }
+
+    // Control Panel
+    const panel = document.createElement("div");
+    panel.style = "position:fixed;bottom:20px;right:20px;z-index:999999;background:#000;border:1px solid #fff;border-radius:8px;padding:10px;color:#fff;font-family:monospace";
+
+    const s = document.createElement("button");
+    s.textContent = "START";
+    s.onclick = start;
+
+    const d = document.createElement("button");
+    d.textContent = "STOP";
+    d.onclick = stop;
+
+    panel.append(s, d);
+    document.body.appendChild(panel);
+})();
