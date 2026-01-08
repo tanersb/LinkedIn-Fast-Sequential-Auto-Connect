@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         LinkedIn Auto Connect
 // @namespace    https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect
-// @version      6.0
-// @description  Shadow DOM fix + Clean UI + Speed Controls + Signature + Timestamp + Full Reset.
+// @version      6.5
+// @description  Shadow DOM fix + Clean UI + Speed Controls + Signature + Timestamp + Full Reset + Update Checker.
 // @author       tanersb
 // @match        https://www.linkedin.com/*
 // @updateURL    https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js
@@ -20,6 +20,9 @@
 
 (function () {
     'use strict';
+
+    // --- SABİTLER ---
+    const UPDATE_LINK = "https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js";
 
     // --- AYARLAR VE HAFIZA ---
     let isConnectorRunning = false;
@@ -72,10 +75,10 @@
     function updateCounterDisplay() {
         const counterEl = document.getElementById('lnk-counter-val');
         const dateEl = document.getElementById('lnk-last-date');
-
+        
         if (counterEl) counterEl.textContent = totalCount;
         if (dateEl) dateEl.textContent = lastActionDate;
-
+        
         saveSettings();
     }
 
@@ -105,12 +108,12 @@
                         const btn = el.closest('button') || el;
                         if (btn && !btn.disabled) {
                             btn.click();
-
+                            
                             // Sayacı ve Tarihi Güncelle
                             totalCount++;
                             lastActionDate = getFormattedDate();
                             updateCounterDisplay();
-
+                            
                             break;
                         }
                     }
@@ -169,7 +172,7 @@
         headerRow.style.cssText = "display: flex; justify-content: space-between; align-items: center;";
 
         const title = document.createElement("div");
-        title.textContent = "LinkedIn Auto v6.0";
+        title.textContent = "LinkedIn Auto v6.1";
         title.style.cssText = "font-weight: 800; font-size: 16px; letter-spacing: 0.5px;";
 
         const closeBtn = document.createElement("button");
@@ -194,19 +197,18 @@
             border-bottom: 1px solid #444; padding-bottom: 10px;
         `;
         infoRow.title = "Sıfırlamak için tıklayın";
-
+        
         infoRow.innerHTML = `
             <span style="color:#fff; font-weight:bold;">Toplam: <span id="lnk-counter-val">${totalCount}</span></span>
             <span style="margin: 0 8px; color:#555;">|</span>
             <span>Son: <span id="lnk-last-date" style="color:#fff;">${lastActionDate}</span></span>
         `;
-
-        // --- SIFIRLAMA MANTIĞI BURADA ---
+        
         infoRow.onclick = () => {
-            if(confirm('Dikkat: Toplam sayı ve Son işlem tarihi sıfırlansın mı?')) {
-                totalCount = 0;
-                lastActionDate = '-';
-                updateCounterDisplay();
+            if(confirm('Dikkat: Toplam sayı ve Son işlem tarihi sıfırlansın mı?')) { 
+                totalCount = 0; 
+                lastActionDate = '-'; 
+                updateCounterDisplay(); 
             }
         };
 
@@ -273,18 +275,44 @@
         startInput.onchange = (e) => { speedConnect = parseInt(e.target.value) || 1000; saveSettings(); };
         row2.append(startBtn, startInput);
 
-        // --- İMZA ---
+        // --- FOOTER KISMI (UPDATE + İMZA) ---
+        // Sol tarafta Update İkonu, Sağ tarafta İmza olacak şekilde bir satır
+        const footerRow = document.createElement("div");
+        footerRow.style.cssText = `
+            display: flex; justify-content: space-between; align-items: center;
+            margin-top: 5px; padding-top: 5px;
+            font-size: 10px; color: #777;
+        `;
+
+        // 1. SOL: Update Iconu
+        const updateLink = document.createElement("a");
+        updateLink.href = UPDATE_LINK;
+        updateLink.title = "Güncellemeleri Kontrol Et";
+        updateLink.target = "_blank"; // Yeni sekmede aç
+        updateLink.style.cssText = "color: #777; text-decoration: none; display: flex; align-items: center; opacity: 0.7; transition: opacity 0.2s;";
+        
+        // SVG Sync Icon
+        updateLink.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+        `;
+        
+        updateLink.onmouseover = () => updateLink.style.opacity = "1";
+        updateLink.onmouseout = () => updateLink.style.opacity = "0.7";
+
+        // 2. SAĞ: İmza
         const signature = document.createElement("div");
         signature.textContent = "tanersb";
-        signature.style.cssText = `
-            text-align: right; font-size: 10px; color: #777;
-            margin-top: 5px; font-style: italic; opacity: 0.7;
-        `;
+        signature.style.cssText = "font-style: italic; opacity: 0.7; cursor: default;";
+        
         signature.onmouseover = () => signature.style.opacity = "1";
         signature.onmouseout = () => signature.style.opacity = "0.7";
 
+        footerRow.append(updateLink, signature);
+
         // Ekleme
-        fullView.append(headerRow, infoRow, row1, row2, signature);
+        fullView.append(headerRow, infoRow, row1, row2, footerRow);
 
 
         // 3. KAPALI GÖRÜNÜM (MINI VIEW)
