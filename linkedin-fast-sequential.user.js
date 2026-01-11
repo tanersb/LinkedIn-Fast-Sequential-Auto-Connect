@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         LinkedIn Auto Connect
 // @namespace    https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect
-// @version      8.0
-// @description  Shadow DOM fix + Clean UI + Speed Controls + Signature + Timestamp + Full Reset + Update Checker + Limit Detection + State Memory + Profile Saver + Auto Add Saved + Full Custom UI + Robust Interceptor.
+// @version      8.2
+// @description  Shadow DOM fix + Clean UI + Speed Controls + Signature + Timestamp + Full Reset + Update Checker + Limit Detection + State Memory + Profile Saver + Auto Add Saved + Full Custom UI + Anti-Duplicate System + Multi-Language (TR/EN).
 // @author       tanersb
 // @match        https://www.linkedin.com/*
 // @updateURL    https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js
@@ -21,11 +21,117 @@
 (function () {
     'use strict';
 
+    // --- ÖNEMLİ: IFRAME KORUMASI ---
+    if (window.top !== window.self) return;
+
     // --- SABİTLER ---
     const UPDATE_LINK = "https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js";
     const SLEEP_BETWEEN_ACTIONS = 2500;
 
+    // --- DİL SÖZLÜĞÜ (TRANSLATIONS) ---
+    const TEXTS = {
+        tr: {
+            title: "LinkedIn Auto v8.2",
+            total: "Toplam",
+            last: "Son",
+            save_btn: "BU PROFİLİ KAYDET",
+            save_success: "KAYDEDİLDİ ✔",
+            list_btn: "LİSTE",
+            note_closer: "Not Kapatıcı",
+            active: "AKTİF",
+            passive: "PASİF",
+            start: "BAŞLAT",
+            stop: "DURDUR",
+            limit_btn: "LİMİT DOLDU",
+            update: "Güncelle",
+            list_header: "Kayıtlı Profiller",
+            list_empty: "Liste boş.",
+            back: "« GERİ",
+            auto_add: "HEPSİNİ EKLE (OTO)",
+            clear: "TEMİZLE",
+            confirm_reset_title: "Sayaç Sıfırlama",
+            confirm_reset_msg: "Toplam sayı ve son işlem tarihi sıfırlansın mı?",
+            confirm_clear_title: "Listeyi Temizle",
+            confirm_clear_msg: "Tüm kayıtlı profiller silinecek. Emin misiniz?",
+            alert_empty_title: "Liste Boş",
+            alert_empty_msg: "İşleme başlamak için önce profil sayfalarına gidip <b>'BU PROFİLİ KAYDET'</b> butonuna basarak liste oluşturun.",
+            confirm_auto_title: "Oto Ekleme Başlatılsın mı?",
+            confirm_auto_msg_1: "Listede toplam <b>",
+            confirm_auto_msg_2: "</b> kişi var.<br><br>Bot sırayla bu profilleri gezip 'Bağlantı Kur' butonuna basacak.",
+            alert_limit_title: "⚠️ HAFTALIK LİMİT UYARISI",
+            alert_limit_msg: "LinkedIn'in 'Haftalık Davet Sınırı' uyarısı tespit edildi ve ekranınızdan kaldırıldı.<br><br>Bot güvenliğiniz için otomatik olarak durduruldu.",
+            modal_cancel: "İPTAL",
+            modal_confirm: "ONAYLA",
+            modal_ok: "TAMAM",
+            error_profile: "Lütfen bir kişi profiline girin.<br>(Örn: linkedin.com/in/kullanici)",
+            error_exists: "Bu kişi zaten listenizde kayıtlı.",
+            dash_title: "🤖 Oto Ekleme Modu",
+            dash_person: "Kişi",
+            dash_status_scan: "Profil taranıyor...",
+            dash_status_conn: "Bağlantı kuruluyor...",
+            dash_status_sent: "✔ İstek Gönderildi",
+            dash_status_pending: "⚠ Zaten İstek Atılmış",
+            dash_status_fail: "❌ Buton Bulunamadı",
+            dash_next: "Sıradaki profile geçiliyor...",
+            dash_done: "✅ TÜM LİSTE TAMAMLANDI!",
+            dash_stop_user: "🛑 Kullanıcı durdurdu.",
+            dash_stop_limit: "⚠️ HAFTALIK LİMİT!"
+        },
+        en: {
+            title: "LinkedIn Auto v8.2",
+            total: "Total",
+            last: "Last",
+            save_btn: "SAVE THIS PROFILE",
+            save_success: "SAVED ✔",
+            list_btn: "LIST",
+            note_closer: "Note Closer",
+            active: "ACTIVE",
+            passive: "OFF",
+            start: "START",
+            stop: "STOP",
+            limit_btn: "LIMIT REACHED",
+            update: "Update",
+            list_header: "Saved Profiles",
+            list_empty: "List is empty.",
+            back: "« BACK",
+            auto_add: "ADD ALL (AUTO)",
+            clear: "CLEAR ALL",
+            confirm_reset_title: "Reset Counter",
+            confirm_reset_msg: "Reset total count and last action date?",
+            confirm_clear_title: "Clear List",
+            confirm_clear_msg: "All saved profiles will be deleted. Are you sure?",
+            alert_empty_title: "List Empty",
+            alert_empty_msg: "To start, visit profile pages and click <b>'SAVE THIS PROFILE'</b> to build your list.",
+            confirm_auto_title: "Start Auto Add?",
+            confirm_auto_msg_1: "There are <b>",
+            confirm_auto_msg_2: "</b> people in the list.<br><br>The bot will visit each profile and click 'Connect'.",
+            alert_limit_title: "⚠️ WEEKLY LIMIT WARNING",
+            alert_limit_msg: "LinkedIn's 'Weekly Invitation Limit' warning was detected and removed from your screen.<br><br>The bot has been stopped for your safety.",
+            modal_cancel: "CANCEL",
+            modal_confirm: "CONFIRM",
+            modal_ok: "OK",
+            error_profile: "Please visit a user profile.<br>(e.g. linkedin.com/in/user)",
+            error_exists: "This person is already in your list.",
+            dash_title: "🤖 Auto Add Mode",
+            dash_person: "Person",
+            dash_status_scan: "Scanning profile...",
+            dash_status_conn: "Connecting...",
+            dash_status_sent: "✔ Request Sent",
+            dash_status_pending: "⚠ Already Pending",
+            dash_status_fail: "❌ Button Not Found",
+            dash_next: "Moving to next profile...",
+            dash_done: "✅ ALL DONE!",
+            dash_stop_user: "🛑 Stopped by user.",
+            dash_stop_limit: "⚠️ WEEKLY LIMIT!"
+        }
+    };
+
     // --- AYARLAR VE HAFIZA ---
+    let currentLang = localStorage.getItem('LnAuto_Lang') || 'tr'; // Varsayılan TR
+    
+    // Çeviri Yardımcısı
+    const t = (key) => TEXTS[currentLang][key] || key;
+
     let isConnectorRunning = false;
     let isNoteCloserActive = true;
 
@@ -34,7 +140,7 @@
     let speedConnect = parseInt(localStorage.getItem('LnAuto_SpeedConnect')) || 1000;
     let lastActionDate = localStorage.getItem('LnAuto_LastDate') || '-';
     let panelState = localStorage.getItem('LnAuto_PanelState') || 'open';
-
+    
     let savedProfiles = [];
     try {
         savedProfiles = JSON.parse(localStorage.getItem('LnAuto_SavedProfiles')) || [];
@@ -53,6 +159,7 @@
         localStorage.setItem('LnAuto_SavedProfiles', JSON.stringify(savedProfiles));
         localStorage.setItem('LnAuto_IsAutoAdding', isAutoAdding);
         localStorage.setItem('LnAuto_AutoAddIndex', autoAddIndex);
+        localStorage.setItem('LnAuto_Lang', currentLang);
     }
 
     // --- YARDIMCI FONKSİYONLAR ---
@@ -93,7 +200,6 @@
 
     // --- GLOBAL CUSTOM MODAL SİSTEMİ ---
     function showModal(type, title, message, onConfirm) {
-        // Zaten açık bir modal varsa ve içeriği aynıysa tekrar açma (Loop koruması)
         const existingModal = document.getElementById('lnk-custom-modal-overlay');
         if (existingModal && existingModal.innerText.includes(title)) return;
         if (existingModal) existingModal.remove();
@@ -102,9 +208,9 @@
         overlay.id = 'lnk-custom-modal-overlay';
         overlay.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85); /* Daha koyu arka plan */
+            background: rgba(0, 0, 0, 0.85);
             backdrop-filter: blur(8px);
-            z-index: 2147483647; /* En üst katman */
+            z-index: 2147483647;
             display: flex; align-items: center; justify-content: center;
             animation: fadeIn 0.2s ease-out;
         `;
@@ -115,20 +221,14 @@
             width: 400px;
             padding: 30px;
             border-radius: 16px;
-            border: 2px solid #ff4444; /* Hata durumunda kırmızı çerçeve varsayılan olsun */
-            box-shadow: 0 0 50px rgba(255, 68, 68, 0.2);
+            border: 2px solid ${type === 'alert-error' ? '#ff4444' : '#333'};
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
             text-align: center;
             font-family: system-ui, -apple-system, sans-serif;
             color: #fff;
             transform: scale(0.9);
             animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         `;
-
-        // Eğer type confirm ise veya normal bir uyarıysa border rengini ayarla
-        if (type !== 'alert-error' && title.includes('Limit') === false) {
-             modal.style.border = "1px solid #333";
-             modal.style.boxShadow = "0 25px 60px rgba(0,0,0,0.6)";
-        }
 
         if (!document.getElementById('lnk-modal-style')) {
             const style = document.createElement('style');
@@ -146,12 +246,12 @@
         let buttonsHtml = '';
         if (type === 'confirm') {
             buttonsHtml = `
-                <button id="lnk-modal-cancel" class="lnk-modal-btn" style="background: #333; color: #ccc;">İPTAL</button>
-                <button id="lnk-modal-confirm" class="lnk-modal-btn" style="background: #0d6efd; color: #fff;">ONAYLA</button>
+                <button id="lnk-modal-cancel" class="lnk-modal-btn" style="background: #333; color: #ccc;">${t('modal_cancel')}</button>
+                <button id="lnk-modal-confirm" class="lnk-modal-btn" style="background: #0d6efd; color: #fff;">${t('modal_confirm')}</button>
             `;
         } else {
             buttonsHtml = `
-                <button id="lnk-modal-ok" class="lnk-modal-btn" style="background: #0d6efd; color: #fff; min-width: 100px;">TAMAM</button>
+                <button id="lnk-modal-ok" class="lnk-modal-btn" style="background: #0d6efd; color: #fff; min-width: 100px;">${t('modal_ok')}</button>
             `;
         }
 
@@ -177,60 +277,57 @@
         }
     }
 
-    // --- MUTATION OBSERVER (KESKİN NİŞANCI MODU) ---
+    // --- MUTATION OBSERVER (INTERCEPTOR) ---
     const observer = new MutationObserver((mutations) => {
-        // LinkedIn'in limit uyarısının olası tüm class ve id'leri
         const limitAlert = document.querySelector('.ip-fuse-limit-alert');
         const limitOverlay = document.querySelector('[data-test-modal-id="fuse-limit-alert"]');
         const limitHeader = document.getElementById('ip-fuse-limit-alert__header');
 
         if (limitAlert || limitOverlay || limitHeader) {
-            console.warn(">>> [INTERCEPTOR] LinkedIn Limit Uyarısı Yakalandı! İmha ediliyor...");
+            console.warn(">>> [INTERCEPTOR] LinkedIn Limit Uyarısı Yakalandı!");
 
-            // 1. LinkedIn Elementlerini Yok Et
             if (limitOverlay) limitOverlay.remove();
             if (limitAlert) limitAlert.remove();
-
-            // 2. Kalan Artıkları Temizle
             document.querySelectorAll('.artdeco-modal-overlay').forEach(el => el.remove());
             document.body.style.overflow = 'auto';
             document.body.classList.remove('artdeco-modal-is-open');
 
-            // 3. Botu Durdur
             isConnectorRunning = false;
             isAutoAdding = false;
             saveSettings();
 
-            // 4. Paneldeki Butonu Güncelle (Varsa)
             const startBtn = document.getElementById('lnk-btn-start');
             if (startBtn) {
-                startBtn.textContent = "LİMİT DOLDU";
+                startBtn.textContent = t('limit_btn');
                 startBtn.style.background = "#000";
             }
 
-            // 5. BİZİM UYARIYI BAS (Gecikmeli, garanti olsun diye)
             setTimeout(() => {
-                showModal('alert-error', '⚠️ HAFTALIK LİMİT UYARISI',
-                    'LinkedIn\'in "Haftalık Davet Sınırı" uyarısı tespit edildi ve ekranınızdan kaldırıldı.<br><br>Bot güvenliğiniz için otomatik olarak durduruldu. Lütfen daha fazla zorlamayın.');
+                showModal('alert-error', t('alert_limit_title'), t('alert_limit_msg'));
             }, 100);
         }
     });
 
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
+    function checkWeeklyLimit() {
+        if (document.getElementById('ip-fuse-limit-alert__header')) return true;
+        const bodyText = document.body.innerText;
+        if (bodyText.includes("Haftalık bağlantı daveti sınırına") || bodyText.includes("Weekly invitation limit")) {
+            return true;
+        }
+        return false;
+    }
 
     // --- OTO EKLEME ---
     function startAutoAddProcess() {
         if (!savedProfiles || savedProfiles.length === 0) {
-            showModal('alert', 'Liste Boş', 'İşleme başlamak için önce profil sayfalarına gidip <b>"BU PROFİLİ KAYDET"</b> butonuna basarak liste oluşturun.');
+            showModal('alert', t('alert_empty_title'), t('alert_empty_msg'));
             return;
         }
 
-        showModal('confirm', 'Oto Ekleme Başlatılsın mı?',
-            `Listede toplam <b>${savedProfiles.length}</b> kişi var.<br><br>Bot sırayla bu profilleri gezip 'Bağlantı Kur' butonuna basacak.`,
+        showModal('confirm', t('confirm_auto_title'), 
+            `${t('confirm_auto_msg_1')}${savedProfiles.length}${t('confirm_auto_msg_2')}`,
             () => {
                 isAutoAdding = true;
                 autoAddIndex = 0;
@@ -245,16 +342,16 @@
 
         const dashboard = document.createElement('div');
         const progressPercent = Math.round(((autoAddIndex + 1) / savedProfiles.length) * 100);
-
+        
         dashboard.style.cssText = `
             position: fixed; top: 80px; right: 20px; width: 280px;
             background: rgba(25, 25, 25, 0.9); backdrop-filter: blur(12px);
             border-left: 4px solid #0d6efd; border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); z-index: 999999;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); z-index: 999999; 
             font-family: -apple-system, system-ui; color: #fff; padding: 15px;
             display: flex; flex-direction: column; gap: 10px; animation: slideIn 0.5s ease-out;
         `;
-
+        
         const styleSheet = document.createElement("style");
         styleSheet.innerText = `
             @keyframes slideIn { from { opacity: 0; transform: translateX(50px); } to { opacity: 1; transform: translateX(0); } }
@@ -266,26 +363,26 @@
 
         dashboard.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight:700; font-size:14px; color:#0d6efd;">🤖 Oto Ekleme Modu</span>
+                <span style="font-weight:700; font-size:14px; color:#0d6efd;">${t('dash_title')}</span>
                 <span style="font-size:12px; color:#aaa;">${progressPercent}%</span>
             </div>
-            <div style="font-size:13px; color:#eee;">Kişi: <b>${autoAddIndex + 1}</b> / ${savedProfiles.length}</div>
+            <div style="font-size:13px; color:#eee;">${t('dash_person')}: <b>${autoAddIndex + 1}</b> / ${savedProfiles.length}</div>
             <div class="lnk-progress-bar"><div class="lnk-progress-fill" style="width: ${progressPercent}%"></div></div>
-            <div id="lnk-status-text" style="font-size:12px; color:#ccc; min-height:18px;">Profil taranıyor...</div>
+            <div id="lnk-status-text" style="font-size:12px; color:#ccc; min-height:18px;">${t('dash_status_scan')}</div>
         `;
 
         const stopBtn = document.createElement("button");
         stopBtn.className = "lnk-dash-btn";
-        stopBtn.textContent = "Durdur";
+        stopBtn.textContent = t('stop');
         stopBtn.style.cssText = `background: #333; color: #ff6b6b; border: 1px solid #444; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; margin-top: 5px; width: 100%; transition: all 0.2s;`;
         stopBtn.onmouseover = () => stopBtn.style.background = "#444";
         stopBtn.onmouseout = () => stopBtn.style.background = "#333";
-
+        
         stopBtn.onclick = () => {
             isAutoAdding = false;
             saveSettings();
             dashboard.style.borderLeftColor = "#dc3545";
-            document.getElementById('lnk-status-text').innerHTML = "🛑 Kullanıcı durdurdu.";
+            document.getElementById('lnk-status-text').innerHTML = t('dash_stop_user');
             document.querySelector('.lnk-progress-fill').style.background = "#dc3545";
             setTimeout(() => dashboard.remove(), 2000);
         };
@@ -294,11 +391,12 @@
 
         setTimeout(async () => {
             const statusText = document.getElementById('lnk-status-text');
-
-            // (Observer zaten yakalar ama burası da dursun)
-            const limitHeader = document.getElementById('ip-fuse-limit-alert__header');
-            if (limitHeader) {
-                // Burada bir şey yapmaya gerek yok, Observer halledecek.
+            
+            if (checkWeeklyLimit()) {
+                isAutoAdding = false;
+                saveSettings();
+                dashboard.style.borderLeftColor = "#dc3545";
+                statusText.innerHTML = `<span style='color:#ff4444'>${t('dash_stop_limit')}</span>`;
                 return;
             }
 
@@ -307,7 +405,7 @@
             const pendingBtn = buttons.find(b => b.innerText.trim() === 'İstek gönderildi' || b.innerText.trim() === 'Pending');
 
             if (connectBtn) {
-                statusText.innerText = "Bağlantı kuruluyor...";
+                statusText.innerText = t('dash_status_conn');
                 connectBtn.click();
                 await new Promise(r => setTimeout(r, 1000));
                 const sendNowBtn = findInShadows('button[aria-label="Not olmadan gönderin"]') || document.querySelector('button[aria-label="Send without a note"]');
@@ -316,13 +414,13 @@
                     totalCount++;
                     lastActionDate = getFormattedDate();
                 }
-                statusText.innerHTML = "<span style='color:#198754'>✔ İstek Gönderildi</span>";
+                statusText.innerHTML = `<span style='color:#198754'>${t('dash_status_sent')}</span>`;
                 document.querySelector('.lnk-progress-fill').style.background = "#198754";
             } else if (pendingBtn) {
-                statusText.innerHTML = "<span style='color:#ffc107'>⚠ Zaten İstek Atılmış</span>";
+                statusText.innerHTML = `<span style='color:#ffc107'>${t('dash_status_pending')}</span>`;
                 document.querySelector('.lnk-progress-fill').style.background = "#ffc107";
             } else {
-                statusText.innerHTML = "<span style='color:#aaa'>❌ Buton Bulunamadı</span>";
+                statusText.innerHTML = `<span style='color:#aaa'>${t('dash_status_fail')}</span>`;
             }
 
             autoAddIndex++;
@@ -330,7 +428,7 @@
             await new Promise(r => setTimeout(r, 1500));
 
             if (autoAddIndex < savedProfiles.length) {
-                statusText.innerText = "Sıradaki profile geçiliyor...";
+                statusText.innerText = t('dash_next');
                 window.location.href = savedProfiles[autoAddIndex].url;
             } else {
                 isAutoAdding = false;
@@ -339,7 +437,7 @@
                 dashboard.style.borderLeftColor = "#198754";
                 document.querySelector('.lnk-progress-fill').style.width = "100%";
                 document.querySelector('.lnk-progress-fill').style.background = "#198754";
-                statusText.innerText = "✅ TÜM LİSTE TAMAMLANDI!";
+                statusText.innerText = t('dash_done');
                 stopBtn.style.display = "none";
                 setTimeout(() => dashboard.remove(), 5000);
             }
@@ -349,16 +447,16 @@
     // --- DİĞER FONKSİYONLAR ---
     function saveCurrentProfile() {
         const url = window.location.href;
-        if (!url.includes('/in/')) {
-            showModal('alert', 'Hata', 'Lütfen bir kişi profiline girin.<br>(Örn: linkedin.com/in/kullanici)');
-            return;
+        if (!url.includes('/in/')) { 
+            showModal('alert', t('title'), t('error_profile')); 
+            return; 
         }
-        if (savedProfiles.some(p => p.url === url)) {
-            showModal('alert', 'Mevcut', 'Bu kişi zaten listenizde kayıtlı.');
-            return;
+        if (savedProfiles.some(p => p.url === url)) { 
+            showModal('alert', t('title'), t('error_exists')); 
+            return; 
         }
 
-        let name = "Bilinmeyen İsim";
+        let name = "Unknown";
         const h1 = document.querySelector('h1');
         if (h1) name = h1.innerText.trim();
         else {
@@ -368,36 +466,37 @@
 
         savedProfiles.push({ name, url, date: getFormattedDate() });
         saveSettings();
-
+        
         const btn = document.getElementById('lnk-btn-save');
         if(btn) {
             const oldTxt = btn.innerText;
-            btn.innerText = "KAYDEDİLDİ ✔";
+            btn.innerText = t('save_success');
             btn.style.background = "#198754";
             setTimeout(() => { btn.innerText = oldTxt; btn.style.background = "#6610f2"; }, 1500);
         }
-
+        
         const listBtn = document.getElementById('lnk-btn-list');
-        if(listBtn) listBtn.textContent = `LİSTE (${savedProfiles.length})`;
+        if(listBtn) listBtn.textContent = `${t('list_btn')} (${savedProfiles.length})`;
     }
 
     function deleteProfile(index) {
         savedProfiles.splice(index, 1);
         saveSettings();
-        renderSavedListView();
+        renderSavedListView(); 
     }
 
+    // --- RENDER FONKSİYONLARI ---
     function renderMainView() {
         const container = document.getElementById('lnk-panel-content');
         if(!container) return;
-        container.innerHTML = '';
+        container.innerHTML = ''; 
 
         const infoRow = document.createElement("div");
         infoRow.style.cssText = "text-align:center; color:#ccc; font-size:12px; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:10px; cursor:pointer;";
-        infoRow.innerHTML = `<span style="color:#fff; font-weight:bold;">Toplam: <span id="lnk-counter-val">${totalCount}</span></span> <span style="color:#555;">|</span> <span>Son: <span id="lnk-last-date" style="color:#fff;">${lastActionDate}</span></span>`;
-        infoRow.onclick = () => {
-            showModal('confirm', 'Sayaç Sıfırlama', 'Toplam sayı ve son işlem tarihi sıfırlansın mı?', () => {
-                totalCount = 0; lastActionDate = '-'; updateCounterDisplay();
+        infoRow.innerHTML = `<span style="color:#fff; font-weight:bold;">${t('total')}: <span id="lnk-counter-val">${totalCount}</span></span> <span style="color:#555;">|</span> <span>${t('last')}: <span id="lnk-last-date" style="color:#fff;">${lastActionDate}</span></span>`;
+        infoRow.onclick = () => { 
+            showModal('confirm', t('confirm_reset_title'), t('confirm_reset_msg'), () => {
+                totalCount = 0; lastActionDate = '-'; updateCounterDisplay(); 
             });
         };
 
@@ -409,12 +508,12 @@
         saveRow.style.cssText = rowStyle;
         const saveBtn = document.createElement("button");
         saveBtn.id = "lnk-btn-save";
-        saveBtn.textContent = "BU PROFİLİ KAYDET";
-        saveBtn.style.cssText = btnStyle + "background: #6610f2;";
+        saveBtn.textContent = t('save_btn');
+        saveBtn.style.cssText = btnStyle + "background: #6610f2;"; 
         saveBtn.onclick = saveCurrentProfile;
         const listBtn = document.createElement("button");
         listBtn.id = "lnk-btn-list";
-        listBtn.textContent = `LİSTE (${savedProfiles.length})`;
+        listBtn.textContent = `${t('list_btn')} (${savedProfiles.length})`;
         listBtn.style.cssText = btnStyle + "background: #fd7e14; max-width: 80px;";
         listBtn.onclick = renderSavedListView;
         saveRow.append(saveBtn, listBtn);
@@ -422,9 +521,13 @@
         const row1 = document.createElement("div");
         row1.style.cssText = rowStyle;
         const noteBtn = document.createElement("button");
-        noteBtn.textContent = isNoteCloserActive ? "Not Kapatıcı: AKTİF" : "Not Kapatıcı: PASİF";
+        noteBtn.textContent = `${t('note_closer')}: ${isNoteCloserActive ? t('active') : t('passive')}`;
         noteBtn.style.cssText = btnStyle + (isNoteCloserActive ? "background: #198754;" : "background: #6c757d;");
-        noteBtn.onclick = () => { isNoteCloserActive = !isNoteCloserActive; noteBtn.textContent = isNoteCloserActive ? "Not Kapatıcı: AKTİF" : "Not Kapatıcı: PASİF"; noteBtn.style.background = isNoteCloserActive ? "#198754" : "#6c757d"; };
+        noteBtn.onclick = () => { 
+            isNoteCloserActive = !isNoteCloserActive; 
+            noteBtn.textContent = `${t('note_closer')}: ${isNoteCloserActive ? t('active') : t('passive')}`;
+            noteBtn.style.background = isNoteCloserActive ? "#198754" : "#6c757d"; 
+        };
         const noteInput = document.createElement("input");
         noteInput.type = "number"; noteInput.value = speedPopup; noteInput.style.cssText = inputStyle;
         noteInput.onchange = (e) => { speedPopup = parseInt(e.target.value) || 100; saveSettings(); };
@@ -434,12 +537,15 @@
         row2.style.cssText = rowStyle;
         const startBtn = document.createElement("button");
         startBtn.id = "lnk-btn-start";
-        startBtn.textContent = isConnectorRunning ? "DURDUR" : "BAŞLAT";
+        startBtn.textContent = isConnectorRunning ? t('stop') : t('start');
         startBtn.style.cssText = btnStyle + (isConnectorRunning ? "background: #dc3545;" : "background: #0d6efd;");
         startBtn.onclick = () => {
-            if (startBtn.textContent.includes("LİMİT")) return;
+            if (startBtn.textContent.includes(t('limit_btn'))) {
+                showModal('alert-error', 'Dikkat', t('alert_limit_msg'));
+                return;
+            }
             isConnectorRunning = !isConnectorRunning;
-            startBtn.textContent = isConnectorRunning ? "DURDUR" : "BAŞLAT";
+            startBtn.textContent = isConnectorRunning ? t('stop') : t('start');
             startBtn.style.background = isConnectorRunning ? "#dc3545" : "#0d6efd";
         };
         const startInput = document.createElement("input");
@@ -450,7 +556,7 @@
         const footerRow = document.createElement("div");
         footerRow.style.cssText = "display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#777;";
         const updateLink = document.createElement("a");
-        updateLink.href = UPDATE_LINK; updateLink.target = "_blank"; updateLink.style.cssText = "color:#777; text-decoration:none;"; updateLink.innerHTML = "🔄 Update";
+        updateLink.href = UPDATE_LINK; updateLink.target = "_blank"; updateLink.style.cssText = "color:#777; text-decoration:none;"; updateLink.innerHTML = `🔄 ${t('update')}`;
         const signature = document.createElement("div"); signature.textContent = "tanersb"; signature.style.cssText = "font-style:italic;";
         footerRow.append(updateLink, signature);
 
@@ -463,14 +569,14 @@
         container.innerHTML = '';
 
         const header = document.createElement("div");
-        header.innerHTML = `<b>Kayıtlı Profiller (${savedProfiles.length})</b>`;
+        header.innerHTML = `<b>${t('list_header')} (${savedProfiles.length})</b>`;
         header.style.cssText = "text-align:center; padding-bottom:10px; border-bottom:1px solid #444; margin-bottom:10px;";
 
         const listContainer = document.createElement("div");
         listContainer.style.cssText = "max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; padding-right:5px;";
 
         if (savedProfiles.length === 0) {
-            listContainer.innerHTML = "<div style='text-align:center; color:#777; font-style:italic;'>Liste boş.</div>";
+            listContainer.innerHTML = `<div style='text-align:center; color:#777; font-style:italic;'>${t('list_empty')}</div>`;
         } else {
             savedProfiles.forEach((profile, index) => {
                 const item = document.createElement("div");
@@ -490,20 +596,20 @@
         btnRow.style.cssText = "display:flex; gap:5px;";
 
         const backBtn = document.createElement("button");
-        backBtn.textContent = "« GERİ";
+        backBtn.textContent = t('back');
         backBtn.style.cssText = "flex:1; padding:8px; background:#6c757d; border:none; border-radius:6px; color:white; cursor:pointer; font-size:11px;";
         backBtn.addEventListener('click', renderMainView);
 
         const autoAddBtn = document.createElement("button");
-        autoAddBtn.textContent = "HEPSİNİ EKLE (OTO)";
+        autoAddBtn.textContent = t('auto_add');
         autoAddBtn.style.cssText = "flex:2; padding:8px; background:#0dcaf0; border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer; font-size:11px; transition:0.2s;";
         autoAddBtn.addEventListener('click', () => { startAutoAddProcess(); });
 
         const clearAllBtn = document.createElement("button");
-        clearAllBtn.textContent = "TEMİZLE";
+        clearAllBtn.textContent = t('clear');
         clearAllBtn.style.cssText = "flex:1; padding:8px; background:#dc3545; border:none; border-radius:6px; color:white; cursor:pointer; font-size:11px; transition:0.2s;";
         clearAllBtn.addEventListener('click', () => {
-            showModal('confirm', 'Listeyi Temizle', 'Tüm kayıtlı profiller silinecek. Emin misiniz?', () => {
+            showModal('confirm', t('confirm_clear_title'), t('confirm_clear_msg'), () => {
                 savedProfiles = [];
                 saveSettings();
                 renderSavedListView();
@@ -526,6 +632,17 @@
 
     function loopConnect() {
         if (isConnectorRunning && !isAutoAdding) {
+            if (checkWeeklyLimit()) {
+                isConnectorRunning = false;
+                const startBtn = document.getElementById('lnk-btn-start');
+                if (startBtn) {
+                    startBtn.textContent = t('limit_btn');
+                    startBtn.style.background = "#000";
+                    startBtn.style.cursor = "not-allowed";
+                }
+                showModal('alert-error', t('alert_limit_title'), t('alert_limit_msg'));
+                return;
+            }
             const isPopupOpen = findInShadows('div[role="dialog"]') || findInShadows('.artdeco-modal');
             if (!isPopupOpen) {
                 const allButtons = document.querySelectorAll('button, span');
@@ -549,12 +666,12 @@
 
     // --- INIT ---
     function initPanel() {
+        // AGRESİF TEMİZLİK: Var olan panelleri yok et
+        document.querySelectorAll('#lnk-modern-panel').forEach(e => e.remove());
+
         if (!document.body) return setTimeout(initPanel, 500);
-
+        
         if (isAutoAdding) processAutoAddStep();
-
-        const old = document.getElementById('lnk-modern-panel');
-        if(old) old.remove();
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -573,20 +690,49 @@
         panel.id = "lnk-modern-panel";
         panel.style.cssText = `position:fixed; bottom:85px; right:25px; z-index:2147483647; background:rgba(20,20,20,0.95); border:1px solid #555; color:#fff; font-family:system-ui; backdrop-filter:blur(10px); min-width:${isClosed?'auto':'280px'}; border-radius:${isClosed?'30px':'12px'}; transition:all 0.3s;`;
 
-        const wrapper = document.createElement("div");
+        const wrapper = document.createElement("div"); 
         wrapper.style.display = isClosed ? 'none' : 'block';
         wrapper.style.padding = "20px";
 
         const headerRow = document.createElement("div");
         headerRow.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;";
-        const title = document.createElement("div"); title.textContent = "LinkedIn Auto v8.0"; title.style.cssText = "font-weight:800; font-size:16px;";
-        const closeBtn = document.createElement("button"); closeBtn.innerHTML = "&minus;"; closeBtn.style.cssText = "background:#333; color:#fff; border:none; border-radius:50%; width:28px; height:28px; cursor:pointer;";
+        
+        const title = document.createElement("div"); 
+        title.textContent = t('title');
+        title.style.cssText = "font-weight:800; font-size:16px;";
+        
+        // --- KONTROL GRUBU (DİL + KAPAT) ---
+        const controlsDiv = document.createElement("div");
+        controlsDiv.style.display = "flex";
+        controlsDiv.style.gap = "8px";
+        controlsDiv.style.alignItems = "center";
+
+        // DİL BUTONU (YENİ)
+        const langBtn = document.createElement("button");
+        langBtn.textContent = currentLang.toUpperCase();
+        langBtn.title = "Change Language / Dili Değiştir";
+        langBtn.style.cssText = "background: #333; color: #aaa; border: 1px solid #555; border-radius: 4px; font-size: 10px; padding: 2px 5px; cursor: pointer; font-weight:bold;";
+        langBtn.onclick = (e) => {
+            e.stopPropagation();
+            currentLang = currentLang === 'tr' ? 'en' : 'tr'; // Toggle
+            saveSettings();
+            
+            // Paneli yeniden oluştur (Dil değişimi için en temiz yol)
+            panel.remove();
+            initPanel();
+        };
+
+        const closeBtn = document.createElement("button"); 
+        closeBtn.innerHTML = "&minus;"; 
+        closeBtn.style.cssText = "background:#333; color:#fff; border:none; border-radius:50%; width:28px; height:28px; cursor:pointer;";
+        
+        controlsDiv.append(langBtn, closeBtn);
 
         const dynamicContent = document.createElement("div");
         dynamicContent.id = "lnk-panel-content";
         dynamicContent.style.cssText = "display:flex; flex-direction:column; gap:15px; margin-top:10px;";
-
-        headerRow.append(title, closeBtn);
+        
+        headerRow.append(title, controlsDiv);
         wrapper.append(headerRow, dynamicContent);
 
         const miniView = document.createElement("div");
