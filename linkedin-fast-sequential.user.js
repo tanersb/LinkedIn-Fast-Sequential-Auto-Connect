@@ -287,12 +287,15 @@
 
         setTimeout(async () => {
             const statusText = document.getElementById('lnk-status-text');
+
+            // 1. Limit Kontrolü
             if (checkWeeklyLimit()) {
                 isAutoAdding = false; saveSettings();
                 statusText.innerHTML = `<span style='color:#ff4444'>${t('dash_stop_limit')}</span>`;
                 return;
             }
 
+            // 2. Beklemede Kontrolü (Geri Çek butonu varsa)
             const pendingBtn = findTargetButton(['beklemede', 'pending', 'istek gönderildi', 'withdraw']);
             if (pendingBtn) {
                 statusText.innerHTML = `<span style='color:#ffc107'>${t('dash_status_pending')}</span>`;
@@ -300,34 +303,69 @@
                 return next();
             }
 
+            // 3. Ana Ekranda "Bağlantı Kur" Butonu Ara
+            // NOT: Sadece ana profil kartının içindeki butonlara öncelik veriyoruz (varsa)
+            // Ancak genel kullanım için önce sayfada görünür "Connect" var mı diye bakıyoruz.
             let connectBtn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
 
-            if (!connectBtn) {
+            // Ana ekranda "Connect" bulamazsak veya "Mesaj Gönder" varsa "Daha Fazla" menüsüne bak
+            // (Çünkü bazen Connect butonu More menüsünün içinde gizlidir, bazen de zaten arkadaşızdır)
+            const messageBtn = findTargetButton(['mesaj gönder', 'message']);
+
+            if (!connectBtn || messageBtn) {
                 const moreBtn = findTargetButton(['daha fazla', 'more', 'actions']);
 
                 if (moreBtn) {
-                    statusText.innerText = t('dash_status_more');
+                    statusText.innerText = t('dash_status_more'); // "Menü kontrol ediliyor..."
                     nativeClick(moreBtn);
-                    await new Promise(r => setTimeout(r, 600));
 
-                    const disconnectBtn = findTargetButton(['bağlantıyı sil', 'remove connection', 'bağlantıyı kaldır']);
+                    // --- İYİLEŞTİRME: Bekleme süresi artırıldı (2 saniye) ---
+                    await new Promise(r => setTimeout(r, 2000));
 
-                    if (disconnectBtn) {
+                    // --- İYİLEŞTİRME: "Bağlantıyı Sil" kontrolü güçlendirildi ---
+                    // Sadece butonlara değil, açılan menüdeki tüm metinlere bakıyoruz.
+                    const dropdownItems = Array.from(document.querySelectorAll('.artdeco-dropdown__item, .artdeco-dropdown__content li, div[role="button"]'));
+                    const isConnected = dropdownItems.some(item => {
+                        const txt = (item.innerText || "").toLowerCase();
+                        return txt.includes('bağlantıyı sil') ||
+                               txt.includes('bağlantıyı kaldır') ||
+                               txt.includes('remove connection');
+                    });
+
+                    if (isConnected) {
                          statusText.innerHTML = `<span style='color:#0dcaf0'>${t('dash_status_already')}</span>`;
                          document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#0dcaf0";
+                         document.body.click(); // Menüyü kapat
                          return next();
                     }
 
-                    connectBtn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
+                    // Eğer silme butonu yoksa, belki "Bağlantı Kur" menü içine saklanmıştır.
+                    // Menü içindeki Connect butonunu bulmaya çalış.
+                    connectBtn = dropdownItems.find(item => {
+                         const txt = (item.innerText || "").toLowerCase();
+                         return txt.includes('bağlantı kur') || txt.includes('connect') || txt.includes('davet et');
+                    });
+
+                    // Menüde bulamazsa ana sayfadakini (eğer başta bulduysa) kullanmaya devam edebiliriz.
+                    // Ancak "Message" butonu varsa ve menüde "Connect" yoksa, sayfadaki rastgele "Connect"lere tıklamamalıyız.
+                    if (!connectBtn && messageBtn) {
+                        // Mesaj butonu var, More menüsüne baktık, orada da Connect yok, Remove Connection da yok.
+                        // Bu durumda kişi takip ediliyor olabilir veya Connect kapalı olabilir.
+                        // Yanlışlıkla sağdaki "People Also Viewed"a tıklamamak için connectBtn'i sıfırlıyoruz.
+                        // Sadece eğer ana sayfada bulduğumuz connectBtn "Takip Et" değilse ve gerçekten Connect ise...
+                        // Risk almamak için: Mesaj butonu varsa ve menüden Connect çıkmadıysa PAS GEÇ.
+                        connectBtn = null;
+                    }
                 }
             }
 
+            // 4. Bağlantı Butonu (Hala geçerliyse) Tıkla
             if (connectBtn) {
                 statusText.innerText = t('dash_status_conn');
                 nativeClick(connectBtn);
                 await new Promise(r => setTimeout(r, 1000));
 
-                let sendNowBtn = findTargetButton(['not olmadan', 'without a note']);
+                let sendNowBtn = findTargetButton(['not olmadan', 'without a note', 'send', 'gönder']);
                 if (sendNowBtn) {
                     nativeClick(sendNowBtn);
                     totalCount++; lastActionDate = getFormattedDate();
@@ -456,23 +494,43 @@
 
     function loopConnect() {
         if (isConnectorRunning && !isAutoAdding) {
+
+            // 1. Haftalık Limit Kontrolü
             if (checkWeeklyLimit()) {
                 isConnectorRunning = false;
-                const sb = document.getElementById('lnk-btn-start'); if(sb) { sb.textContent=t('limit_btn'); sb.style.background="#000"; }
+                const sb = document.getElementById('lnk-btn-start');
+                if(sb) { sb.textContent=t('limit_btn'); sb.style.background="#000"; }
                 showModal('alert-error', t('alert_limit_title'), t('alert_limit_msg'));
                 return;
             }
-            if (!document.querySelector('.artdeco-modal')) {
-                const pending = findTargetButton(['beklemede', 'pending', 'withdraw']);
-                if(!pending) {
-                    const btn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
-                    if (btn) { nativeClick(btn); totalCount++; lastActionDate = getFormattedDate(); updateCounterDisplay(); }
-                    else window.scrollBy({ top: 350, behavior: 'smooth' });
-                } else {
-                    window.scrollBy({ top: 150, behavior: 'smooth' });
+
+            // 2. Eğer ekranda bir pencere (Modal) açıldıysa (Not ekle vs.) önce onu hallet
+            const modal = document.querySelector('.artdeco-modal');
+            if (modal) {
+                // "Not olmadan gönder" butonu varsa tıkla
+                const sendNowBtn = findTargetButton(['not olmadan', 'without a note', 'send', 'gönder']);
+                if (sendNowBtn) {
+                    nativeClick(sendNowBtn);
+                    totalCount++;
+                    lastActionDate = getFormattedDate();
+                    updateCounterDisplay();
+                }
+                // Modal varken arkadaki butonlara tıklamaya çalışma, bekle.
+            }
+            else {
+                // 3. Doğrudan "Bağlantı Kur" butonunu bul (Beklemede olanları umursama)
+                const btn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
+
+                if (btn) {
+                    // Butona tıkla
+                    nativeClick(btn);
+
+                    // Tıkladıktan sonra sayacı hemen artırma (belki modal açılır),
+                    // ama modal açılmazsa bir sonraki döngüde zaten yeni butona geçecek.
                 }
             }
         }
+        // Hız ayarına göre döngüyü tekrarla
         setTimeout(loopConnect, speedConnect);
     }
     loopConnect();
