@@ -42,8 +42,7 @@ A sophisticated, safe, and modern userscript designed to automate connection req
 1.  Install a userscript manager:
     * **Tampermonkey** (Recommended)
     * Violentmonkey
-2.  [Click Here to Install the Script](#) *(https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/raw/refs/heads/main/linkedin-fast-sequential.user.js)*
-    * *Or manually copy the script content into a new Tampermonkey script.*
+2.  [Click Here to Install the Script](#https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/raw/refs/heads/main/linkedin-fast-sequential.user.js) 
 3.  Go to LinkedIn "People" search results (e.g., Search "HR Manager" -> Filter by People).
 4.  The panel will appear automatically on the bottom right.
 
