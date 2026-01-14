@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         LinkedIn Auto Connect v9.1
+// @name         LinkedIn Auto Connect v9.2
 // @namespace    https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect
-// @version      9.1
+// @version      9.2
 // @author       tanersb
 // @match        https://www.linkedin.com/*
 // @updateURL    https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js
@@ -264,6 +264,7 @@
     function processAutoAddStep() {
         if (!isAutoAdding) return;
 
+        // 1. Dashboard Oluştur
         let dashboard = document.getElementById('lnk-auto-dash');
         if (!dashboard) {
             dashboard = document.createElement('div');
@@ -285,17 +286,20 @@
             isAutoAdding = false; saveSettings(); dashboard.remove();
         };
 
+        // YARDIMCI: Metin temizleme (Türkçe karakter duyarlı)
+        const cleanText = (txt) => (txt || "").toLocaleLowerCase('tr-TR').trim();
+
         setTimeout(async () => {
             const statusText = document.getElementById('lnk-status-text');
 
-            // 1. Limit Kontrolü
+            // 2. Limit Kontrolü
             if (checkWeeklyLimit()) {
                 isAutoAdding = false; saveSettings();
                 statusText.innerHTML = `<span style='color:#ff4444'>${t('dash_stop_limit')}</span>`;
                 return;
             }
 
-            // 2. Beklemede Kontrolü (Geri Çek butonu varsa)
+            // 3. Beklemede / Geri Çek
             const pendingBtn = findTargetButton(['beklemede', 'pending', 'istek gönderildi', 'withdraw']);
             if (pendingBtn) {
                 statusText.innerHTML = `<span style='color:#ffc107'>${t('dash_status_pending')}</span>`;
@@ -303,63 +307,83 @@
                 return next();
             }
 
-            // 3. Ana Ekranda "Bağlantı Kur" Butonu Ara
-            // NOT: Sadece ana profil kartının içindeki butonlara öncelik veriyoruz (varsa)
-            // Ancak genel kullanım için önce sayfada görünür "Connect" var mı diye bakıyoruz.
+            // 4. Ana Ekranda Buton Ara
             let connectBtn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
 
-            // Ana ekranda "Connect" bulamazsak veya "Mesaj Gönder" varsa "Daha Fazla" menüsüne bak
-            // (Çünkü bazen Connect butonu More menüsünün içinde gizlidir, bazen de zaten arkadaşızdır)
+            // Ana ekrandaki butonda "mesaj" kelimesi varsa GEÇERSİZ say.
+            if (connectBtn) {
+                const btnText = cleanText(connectBtn.innerText + " " + connectBtn.getAttribute('aria-label'));
+                if (btnText.includes('mesaj') || btnText.includes('message')) {
+                    connectBtn = null;
+                }
+            }
+
+            // Ana ekranda yoksa veya Mesaj butonu varsa MENÜYE GİR
             const messageBtn = findTargetButton(['mesaj gönder', 'message']);
 
             if (!connectBtn || messageBtn) {
                 const moreBtn = findTargetButton(['daha fazla', 'more', 'actions']);
 
                 if (moreBtn) {
-                    statusText.innerText = t('dash_status_more'); // "Menü kontrol ediliyor..."
+                    statusText.innerText = t('dash_status_more');
                     nativeClick(moreBtn);
 
-                    // --- İYİLEŞTİRME: Bekleme süresi artırıldı (2 saniye) ---
+                    // Menü açılsın diye bekle
                     await new Promise(r => setTimeout(r, 2000));
 
-                    // --- İYİLEŞTİRME: "Bağlantıyı Sil" kontrolü güçlendirildi ---
-                    // Sadece butonlara değil, açılan menüdeki tüm metinlere bakıyoruz.
-                    const dropdownItems = Array.from(document.querySelectorAll('.artdeco-dropdown__item, .artdeco-dropdown__content li, div[role="button"]'));
-                    const isConnected = dropdownItems.some(item => {
-                        const txt = (item.innerText || "").toLowerCase();
-                        return txt.includes('bağlantıyı sil') ||
-                               txt.includes('bağlantıyı kaldır') ||
-                               txt.includes('remove connection');
-                    });
+                    // Açılan menüyü yakala
+                    const openDropdown = document.querySelector('.artdeco-dropdown__content--is-open') || document.querySelector('.artdeco-dropdown__content');
 
-                    if (isConnected) {
-                         statusText.innerHTML = `<span style='color:#0dcaf0'>${t('dash_status_already')}</span>`;
-                         document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#0dcaf0";
-                         document.body.click(); // Menüyü kapat
-                         return next();
-                    }
+                    if (openDropdown) {
+                        // Tıklanabilir öğeleri al (div[role=button], a, li)
+                        const allItems = Array.from(openDropdown.querySelectorAll('div[role="button"], a[role="button"], li, .artdeco-dropdown__item'));
 
-                    // Eğer silme butonu yoksa, belki "Bağlantı Kur" menü içine saklanmıştır.
-                    // Menü içindeki Connect butonunu bulmaya çalış.
-                    connectBtn = dropdownItems.find(item => {
-                         const txt = (item.innerText || "").toLowerCase();
-                         return txt.includes('bağlantı kur') || txt.includes('connect') || txt.includes('davet et');
-                    });
+                        // A) Zaten Arkadaş mıyız?
+                        const isConnected = allItems.some(item => {
+                            const txt = cleanText(item.innerText);
+                            return txt.includes('bağlantıyı sil') || txt.includes('bağlantıyı kaldır') || txt.includes('remove connection');
+                        });
 
-                    // Menüde bulamazsa ana sayfadakini (eğer başta bulduysa) kullanmaya devam edebiliriz.
-                    // Ancak "Message" butonu varsa ve menüde "Connect" yoksa, sayfadaki rastgele "Connect"lere tıklamamalıyız.
-                    if (!connectBtn && messageBtn) {
-                        // Mesaj butonu var, More menüsüne baktık, orada da Connect yok, Remove Connection da yok.
-                        // Bu durumda kişi takip ediliyor olabilir veya Connect kapalı olabilir.
-                        // Yanlışlıkla sağdaki "People Also Viewed"a tıklamamak için connectBtn'i sıfırlıyoruz.
-                        // Sadece eğer ana sayfada bulduğumuz connectBtn "Takip Et" değilse ve gerçekten Connect ise...
-                        // Risk almamak için: Mesaj butonu varsa ve menüden Connect çıkmadıysa PAS GEÇ.
-                        connectBtn = null;
+                        if (isConnected) {
+                             statusText.innerHTML = `<span style='color:#0dcaf0'>${t('dash_status_already')}</span>`;
+                             document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#0dcaf0";
+                             document.body.click(); // Menüyü kapat
+                             return next();
+                        }
+
+                        // B) Bağlantı Kur Butonunu Bul (HTML yapısına uygun tarama)
+                        const menuConnectTarget = allItems.find(item => {
+                            // Hem görünen metni hem de gizli aria-label'ı al
+                            const visibleText = cleanText(item.innerText);
+                            const ariaLabel = cleanText(item.getAttribute('aria-label'));
+                            const combinedText = visibleText + " " + ariaLabel;
+
+                            // 1. KESİN YASAKLILAR (Mesaj, Rapor, PDF)
+                            if (combinedText.includes('mesaj') || combinedText.includes('message')) return false;
+                            if (combinedText.includes('rapor') || combinedText.includes('report')) return false;
+                            if (combinedText.includes('pdf')) return false;
+
+                            // 2. ARANAN KELİMELER (Aria-label'daki "davet et" ifadesi kritik)
+                            // Ekran görüntüne göre aria-label: "Ahu Tamdoğan adlı kullanıcıyı bağlantı kurmak için davet et"
+                            if (ariaLabel.includes('davet et') && ariaLabel.includes('bağlantı')) return true;
+                            if (ariaLabel.includes('invite') && ariaLabel.includes('connect')) return true;
+
+                            // Yedek olarak görünen metin kontrolü
+                            if (visibleText === 'bağlantı kur' || visibleText === '+ bağlantı kur' || visibleText === 'connect') return true;
+
+                            return false;
+                        });
+
+                        if (menuConnectTarget) {
+                            connectBtn = menuConnectTarget;
+                        } else {
+                            connectBtn = null;
+                        }
                     }
                 }
             }
 
-            // 4. Bağlantı Butonu (Hala geçerliyse) Tıkla
+            // 5. SONUÇ
             if (connectBtn) {
                 statusText.innerText = t('dash_status_conn');
                 nativeClick(connectBtn);
@@ -374,10 +398,15 @@
                 statusText.innerHTML = `<span style='color:#198754'>${t('dash_status_sent')}</span>`;
                 document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#198754";
             } else {
-                statusText.innerHTML = `<span style='color:#aaa'>${t('dash_status_fail')}</span>`;
+                statusText.innerHTML = `<span style='color:#ff4444; font-weight:bold;'>❌ BAĞLANTI BUTONU YOK</span>`;
+                document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#ff4444";
             }
 
+            // Menüyü kapat
+            if(document.querySelector('.artdeco-dropdown__content')) document.body.click();
+
             next();
+
         }, SLEEP_BETWEEN_ACTIONS);
     }
 
