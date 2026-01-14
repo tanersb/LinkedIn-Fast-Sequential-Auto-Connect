@@ -1,8 +1,7 @@
 // ==UserScript==
-// @name         LinkedIn Auto Connect v8.9
+// @name         LinkedIn Auto Connect v9.1
 // @namespace    https://github.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect
-// @version      8.9
-// @description  Shadow DOM fix + Clean UI + Speed Controls + Signature + Timestamp + Full Reset + Update Checker + Limit Detection + State Memory + Profile Saver + Auto Add Saved + Full Custom UI + Anti-Duplicate System + Multi-Language (TR/EN) + Auto Scroll + Anchor Tag Support.
+// @version      9.1
 // @author       tanersb
 // @match        https://www.linkedin.com/*
 // @updateURL    https://raw.githubusercontent.com/tanersb/LinkedIn-Fast-Sequential-Auto-Connect/main/linkedin-fast-sequential.user.js
@@ -20,7 +19,7 @@
 
     const TEXTS = {
         tr: {
-            title: "LinkedIn Auto v8.9",
+            title: "LinkedIn Auto v9.1",
             total: "Toplam",
             last: "Son",
             save_btn: "BU PROFİLİ KAYDET",
@@ -58,9 +57,11 @@
             dash_person: "Kişi",
             dash_status_scan: "Profil taranıyor...",
             dash_status_conn: "Bağlantı kuruluyor...",
+            dash_status_more: "Menü kontrol ediliyor...",
             dash_status_sent: "✔ İstek Gönderildi",
-            dash_status_pending: "⚠ Zaten İstek Atılmış",
-            dash_status_fail: "❌ Buton Bulunamadı",
+            dash_status_pending: "⚠ Zaten Beklemede (Atlandı)",
+            dash_status_already: "✔ Zaten Bağlısınız (Atlandı)",
+            dash_status_fail: "❌ Bağlantı Butonu Yok",
             dash_next: "Sıradaki profile geçiliyor...",
             dash_done: "✅ TÜM LİSTE TAMAMLANDI!",
             dash_stop_user: "🛑 Kullanıcı durdurdu.",
@@ -68,7 +69,7 @@
             status_scrolling: "Buton aranıyor... (Kaydırılıyor)"
         },
         en: {
-            title: "LinkedIn Auto v8.9",
+            title: "LinkedIn Auto v9.1",
             total: "Total",
             last: "Last",
             save_btn: "SAVE THIS PROFILE",
@@ -106,9 +107,11 @@
             dash_person: "Person",
             dash_status_scan: "Scanning profile...",
             dash_status_conn: "Connecting...",
+            dash_status_more: "Checking menu...",
             dash_status_sent: "✔ Request Sent",
-            dash_status_pending: "⚠ Already Pending",
-            dash_status_fail: "❌ Button Not Found",
+            dash_status_pending: "⚠ Already Pending (Skipped)",
+            dash_status_already: "✔ Already Connected (Skipped)",
+            dash_status_fail: "❌ No Connect Button",
             dash_next: "Moving to next profile...",
             dash_done: "✅ ALL DONE!",
             dash_stop_user: "🛑 Stopped by user.",
@@ -117,26 +120,18 @@
         }
     };
 
-    let currentLang = localStorage.getItem('LnAuto_Lang') || 'tr'; 
-
+    let currentLang = localStorage.getItem('LnAuto_Lang') || 'tr';
     const t = (key) => TEXTS[currentLang][key] || key;
 
     let isConnectorRunning = false;
     let isNoteCloserActive = true;
-
     let totalCount = parseInt(localStorage.getItem('LnAuto_TotalCount')) || 0;
     let speedPopup = parseInt(localStorage.getItem('LnAuto_SpeedPopup')) || 100;
     let speedConnect = parseInt(localStorage.getItem('LnAuto_SpeedConnect')) || 1000;
     let lastActionDate = localStorage.getItem('LnAuto_LastDate') || '-';
     let panelState = localStorage.getItem('LnAuto_PanelState') || 'open';
-
     let savedProfiles = [];
-    try {
-        savedProfiles = JSON.parse(localStorage.getItem('LnAuto_SavedProfiles')) || [];
-    } catch (e) {
-        savedProfiles = [];
-    }
-
+    try { savedProfiles = JSON.parse(localStorage.getItem('LnAuto_SavedProfiles')) || []; } catch (e) { savedProfiles = []; }
     let isAutoAdding = localStorage.getItem('LnAuto_IsAutoAdding') === 'true';
     let autoAddIndex = parseInt(localStorage.getItem('LnAuto_AutoAddIndex')) || 0;
 
@@ -171,11 +166,7 @@
 
     function getFormattedDate() {
         const now = new Date();
-        const day = String(now.getDate()).padStart(2, '0');
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const hour = String(now.getHours()).padStart(2, '0');
-        const min = String(now.getMinutes()).padStart(2, '0');
-        return `${day}.${month} ${hour}:${min}`;
+        return `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     }
 
     function updateCounterDisplay() {
@@ -186,337 +177,208 @@
         saveSettings();
     }
 
+    function findTargetButton(keywords, checkAria = true) {
+        const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+        return candidates.find(btn => {
+            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
+            if (btn.offsetParent === null) return false;
+
+            const text = (btn.innerText || "").toLowerCase();
+            const label = checkAria ? (btn.getAttribute('aria-label') || "").toLowerCase() : "";
+
+            return keywords.some(k => text.includes(k) || label.includes(k));
+        });
+    }
+
+    const observer = new MutationObserver(() => {
+        const limitEl = document.querySelector('.ip-fuse-limit-alert') || document.querySelector('[data-test-modal-id="fuse-limit-alert"]');
+        if (limitEl) {
+            limitEl.remove();
+            document.querySelectorAll('.artdeco-modal-overlay').forEach(el => el.remove());
+            document.body.style.overflow = 'auto';
+            isConnectorRunning = false; isAutoAdding = false; saveSettings();
+            showModal('alert-error', t('alert_limit_title'), t('alert_limit_msg'));
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    function checkWeeklyLimit() {
+        if (document.body.innerText.includes("Haftalık bağlantı daveti sınırına") || document.body.innerText.includes("Weekly invitation limit")) return true;
+        return false;
+    }
+
     document.addEventListener('click', (e) => {
         if (!e.isTrusted) return;
-        const btn = e.target.closest('button') || e.target.closest('a');
+        const btn = e.target.closest('button') || e.target.closest('a') || e.target.closest('div[role="button"]');
         if (!btn) return;
-
         const txt = (btn.innerText || "").toLowerCase();
         const label = (btn.getAttribute('aria-label') || "").toLowerCase();
 
-        const isSendWithoutNote = txt.includes('not olmadan') || label.includes('not olmadan') || label.includes('without a note');
-
-        if (isSendWithoutNote) {
-            totalCount++;
-            lastActionDate = getFormattedDate();
-            updateCounterDisplay();
-            return;
+        if (txt.includes('not olmadan') || label.includes('without a note')) {
+            totalCount++; lastActionDate = getFormattedDate(); updateCounterDisplay(); return;
         }
-
-        const isConnect = txt.includes('bağlantı kur') || label.includes('bağlantı kur') || label.includes('davet et') || label.includes('connect');
-
-        if (isConnect) {
+        if (txt.includes('bağlantı kur') || label.includes('bağlantı kur') || label.includes('davet et') || label.includes('connect')) {
             setTimeout(() => {
                 const modal = document.querySelector('.artdeco-modal') || document.querySelector('div[role="dialog"]');
-                if (!modal) {
-                    totalCount++;
-                    lastActionDate = getFormattedDate();
-                    updateCounterDisplay();
-                }
+                if (!modal) { totalCount++; lastActionDate = getFormattedDate(); updateCounterDisplay(); }
             }, 600);
         }
     }, true);
 
     function showModal(type, title, message, onConfirm) {
-        const existingModal = document.getElementById('lnk-custom-modal-overlay');
-        if (existingModal && existingModal.innerText.includes(title)) return;
-        if (existingModal) existingModal.remove();
+        const existing = document.getElementById('lnk-custom-modal-overlay');
+        if (existing) existing.remove();
 
         const overlay = document.createElement('div');
         overlay.id = 'lnk-custom-modal-overlay';
-        overlay.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(8px);
-            z-index: 2147483647;
-            display: flex; align-items: center; justify-content: center;
-            animation: fadeIn 0.2s ease-out;
-        `;
+        overlay.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 2147483647; display: flex; align-items: center; justify-content: center;`;
 
         const modal = document.createElement('div');
-        modal.style.cssText = `
-            background: #121212;
-            width: 400px;
-            padding: 30px;
-            border-radius: 16px;
-            border: 2px solid ${type === 'alert-error' ? '#ff4444' : '#333'};
-            box-shadow: 0 0 50px rgba(0,0,0,0.5);
-            text-align: center;
-            font-family: system-ui, -apple-system, sans-serif;
-            color: #fff;
-            transform: scale(0.9);
-            animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        `;
+        modal.style.cssText = `background: #121212; width: 400px; padding: 30px; border-radius: 16px; border: 2px solid ${type === 'alert-error' ? '#ff4444' : '#333'}; text-align: center; color: #fff; font-family: sans-serif;`;
 
-        if (!document.getElementById('lnk-modal-style')) {
-            const style = document.createElement('style');
-            style.id = 'lnk-modal-style';
-            style.innerHTML = `
-                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-                @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-                .lnk-modal-btn { padding: 12px 24px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; font-size: 14px; margin: 0 5px; transition: 0.2s; }
-                .lnk-modal-btn:hover { opacity: 0.9; transform: translateY(-1px); }
-                .lnk-modal-btn:active { transform: scale(0.96); }
-            `;
-            document.head.appendChild(style);
-        }
+        const btns = type === 'confirm'
+            ? `<button id="lnk-mdl-cncl" style="padding:10px 20px; border-radius:8px; border:none; background:#333; color:#ccc; margin-right:10px; cursor:pointer;">${t('modal_cancel')}</button>
+               <button id="lnk-mdl-cnf" style="padding:10px 20px; border-radius:8px; border:none; background:#0d6efd; color:#fff; cursor:pointer;">${t('modal_confirm')}</button>`
+            : `<button id="lnk-mdl-ok" style="padding:10px 20px; border-radius:8px; border:none; background:#0d6efd; color:#fff; cursor:pointer;">${t('modal_ok')}</button>`;
 
-        let buttonsHtml = '';
-        if (type === 'confirm') {
-            buttonsHtml = `
-                <button id="lnk-modal-cancel" class="lnk-modal-btn" style="background: #333; color: #ccc;">${t('modal_cancel')}</button>
-                <button id="lnk-modal-confirm" class="lnk-modal-btn" style="background: #0d6efd; color: #fff;">${t('modal_confirm')}</button>
-            `;
-        } else {
-            buttonsHtml = `
-                <button id="lnk-modal-ok" class="lnk-modal-btn" style="background: #0d6efd; color: #fff; min-width: 100px;">${t('modal_ok')}</button>
-            `;
-        }
-
-        modal.innerHTML = `
-            <div style="font-size: 22px; font-weight: 800; margin-bottom: 12px; color: #fff;">${title}</div>
-            <div style="font-size: 16px; color: #ccc; margin-bottom: 30px; line-height: 1.5;">${message}</div>
-            <div style="display: flex; justify-content: center; gap: 10px;">
-                ${buttonsHtml}
-            </div>
-        `;
-
+        modal.innerHTML = `<div style="font-size:22px; font-weight:800; margin-bottom:12px;">${title}</div><div style="color:#ccc; margin-bottom:30px;">${message}</div><div>${btns}</div>`;
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
         if (type === 'confirm') {
-            document.getElementById('lnk-modal-cancel').onclick = () => overlay.remove();
-            document.getElementById('lnk-modal-confirm').onclick = () => {
-                overlay.remove();
-                if (onConfirm) onConfirm();
-            };
+            document.getElementById('lnk-mdl-cncl').onclick = () => overlay.remove();
+            document.getElementById('lnk-mdl-cnf').onclick = () => { overlay.remove(); if (onConfirm) onConfirm(); };
         } else {
-            document.getElementById('lnk-modal-ok').onclick = () => overlay.remove();
+            document.getElementById('lnk-mdl-ok').onclick = () => overlay.remove();
         }
-    }
-
-    const observer = new MutationObserver((mutations) => {
-        const limitAlert = document.querySelector('.ip-fuse-limit-alert');
-        const limitOverlay = document.querySelector('[data-test-modal-id="fuse-limit-alert"]');
-        const limitHeader = document.getElementById('ip-fuse-limit-alert__header');
-
-        if (limitAlert || limitOverlay || limitHeader) {
-            console.warn(">>> [INTERCEPTOR] LinkedIn Limit Uyarısı Yakalandı!");
-
-            if (limitOverlay) limitOverlay.remove();
-            if (limitAlert) limitAlert.remove();
-            document.querySelectorAll('.artdeco-modal-overlay').forEach(el => el.remove());
-            document.body.style.overflow = 'auto';
-            document.body.classList.remove('artdeco-modal-is-open');
-
-            isConnectorRunning = false;
-            isAutoAdding = false;
-            saveSettings();
-
-            const startBtn = document.getElementById('lnk-btn-start');
-            if (startBtn) {
-                startBtn.textContent = t('limit_btn');
-                startBtn.style.background = "#000";
-            }
-
-            setTimeout(() => {
-                showModal('alert-error', t('alert_limit_title'), t('alert_limit_msg'));
-            }, 100);
-        }
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    function checkWeeklyLimit() {
-        if (document.getElementById('ip-fuse-limit-alert__header')) return true;
-        const bodyText = document.body.innerText;
-        if (bodyText.includes("Haftalık bağlantı daveti sınırına") || bodyText.includes("Weekly invitation limit")) {
-            return true;
-        }
-        return false;
     }
 
     function startAutoAddProcess() {
-        if (!savedProfiles || savedProfiles.length === 0) {
-            showModal('alert', t('alert_empty_title'), t('alert_empty_msg'));
-            return;
-        }
-
-        showModal('confirm', t('confirm_auto_title'),
-            `${t('confirm_auto_msg_1')}${savedProfiles.length}${t('confirm_auto_msg_2')}`,
-            () => {
-                isAutoAdding = true;
-                autoAddIndex = 0;
-                saveSettings();
-                window.location.href = savedProfiles[0].url;
-            }
-        );
+        if (!savedProfiles.length) return showModal('alert', t('alert_empty_title'), t('alert_empty_msg'));
+        showModal('confirm', t('confirm_auto_title'), `${t('confirm_auto_msg_1')}${savedProfiles.length}${t('confirm_auto_msg_2')}`, () => {
+            isAutoAdding = true; autoAddIndex = 0; saveSettings();
+            window.location.href = savedProfiles[0].url;
+        });
     }
 
     function processAutoAddStep() {
         if (!isAutoAdding) return;
 
-        const dashboard = document.createElement('div');
-        const progressPercent = Math.round(((autoAddIndex + 1) / savedProfiles.length) * 100);
+        let dashboard = document.getElementById('lnk-auto-dash');
+        if (!dashboard) {
+            dashboard = document.createElement('div');
+            dashboard.id = 'lnk-auto-dash';
+            dashboard.style.cssText = `position:fixed; top:80px; right:20px; width:280px; background:rgba(25,25,25,0.95); border-left:4px solid #0d6efd; border-radius:8px; padding:15px; z-index:999999; font-family:sans-serif; color:#fff; box-shadow:0 8px 32px rgba(0,0,0,0.5);`;
+            document.body.appendChild(dashboard);
+        }
 
-        dashboard.style.cssText = `
-            position: fixed; top: 80px; right: 20px; width: 280px;
-            background: rgba(25, 25, 25, 0.9); backdrop-filter: blur(12px);
-            border-left: 4px solid #0d6efd; border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); z-index: 999999;
-            font-family: -apple-system, system-ui; color: #fff; padding: 15px;
-            display: flex; flex-direction: column; gap: 10px; animation: slideIn 0.5s ease-out;
-        `;
-
-        const styleSheet = document.createElement("style");
-        styleSheet.innerText = `
-            @keyframes slideIn { from { opacity: 0; transform: translateX(50px); } to { opacity: 1; transform: translateX(0); } }
-            .lnk-progress-bar { width: 100%; height: 6px; background: #444; border-radius: 3px; overflow: hidden; margin-top: 5px; }
-            .lnk-progress-fill { height: 100%; background: #0d6efd; width: 0%; transition: width 0.5s ease; }
-            .lnk-dash-btn:active { transform: scale(0.96); }
-        `;
-        document.head.appendChild(styleSheet);
-
+        const progress = Math.round(((autoAddIndex + 1) / savedProfiles.length) * 100);
         dashboard.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight:700; font-size:14px; color:#0d6efd;">${t('dash_title')}</span>
-                <span style="font-size:12px; color:#aaa;">${progressPercent}%</span>
-            </div>
-            <div style="font-size:13px; color:#eee;">${t('dash_person')}: <b>${autoAddIndex + 1}</b> / ${savedProfiles.length}</div>
-            <div class="lnk-progress-bar"><div class="lnk-progress-fill" style="width: ${progressPercent}%"></div></div>
-            <div id="lnk-status-text" style="font-size:12px; color:#ccc; min-height:18px;">${t('dash_status_scan')}</div>
+            <div style="display:flex; justify-content:space-between; font-weight:bold; color:#0d6efd; margin-bottom:5px;"><span>${t('dash_title')}</span><span>${progress}%</span></div>
+            <div style="font-size:13px; margin-bottom:5px;">${t('dash_person')}: <b>${autoAddIndex + 1}</b> / ${savedProfiles.length}</div>
+            <div style="width:100%; height:6px; background:#444; border-radius:3px; overflow:hidden; margin-bottom:8px;"><div style="height:100%; background:#0d6efd; width:${progress}%; transition:width 0.5s;"></div></div>
+            <div id="lnk-status-text" style="font-size:12px; color:#ccc;">${t('dash_status_scan')}</div>
+            <button id="lnk-dash-stop" style="width:100%; background:#333; color:#ff6b6b; border:1px solid #444; margin-top:8px; padding:5px; border-radius:4px; cursor:pointer;">${t('stop')}</button>
         `;
 
-        const stopBtn = document.createElement("button");
-        stopBtn.className = "lnk-dash-btn";
-        stopBtn.textContent = t('stop');
-        stopBtn.style.cssText = `background: #333; color: #ff6b6b; border: 1px solid #444; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; margin-top: 5px; width: 100%; transition: all 0.2s;`;
-        stopBtn.onmouseover = () => stopBtn.style.background = "#444";
-        stopBtn.onmouseout = () => stopBtn.style.background = "#333";
-
-        stopBtn.onclick = () => {
-            isAutoAdding = false;
-            saveSettings();
-            dashboard.style.borderLeftColor = "#dc3545";
-            document.getElementById('lnk-status-text').innerHTML = t('dash_stop_user');
-            document.querySelector('.lnk-progress-fill').style.background = "#dc3545";
-            setTimeout(() => dashboard.remove(), 2000);
+        document.getElementById('lnk-dash-stop').onclick = () => {
+            isAutoAdding = false; saveSettings(); dashboard.remove();
         };
-        dashboard.appendChild(stopBtn);
-        document.body.appendChild(dashboard);
 
         setTimeout(async () => {
             const statusText = document.getElementById('lnk-status-text');
-
             if (checkWeeklyLimit()) {
-                isAutoAdding = false;
-                saveSettings();
-                dashboard.style.borderLeftColor = "#dc3545";
+                isAutoAdding = false; saveSettings();
                 statusText.innerHTML = `<span style='color:#ff4444'>${t('dash_stop_limit')}</span>`;
                 return;
             }
 
-            const buttons = Array.from(document.querySelectorAll('button, a.artdeco-button'));
-            const connectBtn = buttons.find(b => {
-                const txt = (b.innerText || "").toLowerCase();
-                return (txt.includes('bağlantı kur') || txt.includes('connect')) && !b.disabled;
-            });
-            const pendingBtn = buttons.find(b => {
-                const txt = (b.innerText || "").toLowerCase();
-                return (txt.includes('istek gönderildi') || txt.includes('pending') || txt.includes('beklemede'));
-            });
+            const pendingBtn = findTargetButton(['beklemede', 'pending', 'istek gönderildi', 'withdraw']);
+            if (pendingBtn) {
+                statusText.innerHTML = `<span style='color:#ffc107'>${t('dash_status_pending')}</span>`;
+                document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#ffc107";
+                return next();
+            }
+
+            let connectBtn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
+
+            if (!connectBtn) {
+                const moreBtn = findTargetButton(['daha fazla', 'more', 'actions']);
+
+                if (moreBtn) {
+                    statusText.innerText = t('dash_status_more');
+                    nativeClick(moreBtn);
+                    await new Promise(r => setTimeout(r, 600));
+
+                    const disconnectBtn = findTargetButton(['bağlantıyı sil', 'remove connection', 'bağlantıyı kaldır']);
+
+                    if (disconnectBtn) {
+                         statusText.innerHTML = `<span style='color:#0dcaf0'>${t('dash_status_already')}</span>`;
+                         document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#0dcaf0";
+                         return next();
+                    }
+
+                    connectBtn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
+                }
+            }
 
             if (connectBtn) {
                 statusText.innerText = t('dash_status_conn');
-                connectBtn.click();
+                nativeClick(connectBtn);
                 await new Promise(r => setTimeout(r, 1000));
 
-                let sendNowBtn = findInShadows('button[aria-label="Not olmadan gönderin"]');
-                if(!sendNowBtn) sendNowBtn = findInShadows('button[aria-label="Send without a note"]');
-                if(!sendNowBtn) {
-                    const allPrimaryBtns = document.querySelectorAll('.artdeco-button--primary');
-                    for(let btn of allPrimaryBtns) {
-                        const txt = btn.innerText.toLowerCase();
-                        if(txt.includes('not olmadan') || txt.includes('without a note')) {
-                            sendNowBtn = btn;
-                            break;
-                        }
-                    }
-                }
-
+                let sendNowBtn = findTargetButton(['not olmadan', 'without a note']);
                 if (sendNowBtn) {
                     nativeClick(sendNowBtn);
-                    totalCount++;
-                    lastActionDate = getFormattedDate();
+                    totalCount++; lastActionDate = getFormattedDate();
                 }
+
                 statusText.innerHTML = `<span style='color:#198754'>${t('dash_status_sent')}</span>`;
-                document.querySelector('.lnk-progress-fill').style.background = "#198754";
-            } else if (pendingBtn) {
-                statusText.innerHTML = `<span style='color:#ffc107'>${t('dash_status_pending')}</span>`;
-                document.querySelector('.lnk-progress-fill').style.background = "#ffc107";
+                document.querySelector('#lnk-auto-dash div div[style*="background:#0d6efd"]').style.background = "#198754";
             } else {
                 statusText.innerHTML = `<span style='color:#aaa'>${t('dash_status_fail')}</span>`;
             }
 
-            autoAddIndex++;
-            saveSettings();
-            await new Promise(r => setTimeout(r, 1500));
+            next();
+        }, SLEEP_BETWEEN_ACTIONS);
+    }
+
+    function next() {
+        autoAddIndex++; saveSettings();
+        setTimeout(() => {
+            const dashboard = document.getElementById('lnk-auto-dash');
+            const statusText = document.getElementById('lnk-status-text');
+            if(!dashboard) return;
 
             if (autoAddIndex < savedProfiles.length) {
                 statusText.innerText = t('dash_next');
                 window.location.href = savedProfiles[autoAddIndex].url;
             } else {
-                isAutoAdding = false;
-                autoAddIndex = 0;
-                saveSettings();
-                dashboard.style.borderLeftColor = "#198754";
-                document.querySelector('.lnk-progress-fill').style.width = "100%";
-                document.querySelector('.lnk-progress-fill').style.background = "#198754";
+                isAutoAdding = false; autoAddIndex = 0; saveSettings();
                 statusText.innerText = t('dash_done');
-                stopBtn.style.display = "none";
+                document.getElementById('lnk-dash-stop').style.display = "none";
                 setTimeout(() => dashboard.remove(), 5000);
             }
-        }, SLEEP_BETWEEN_ACTIONS);
+        }, 1500);
     }
 
     function saveCurrentProfile() {
         const url = window.location.href;
-        if (!url.includes('/in/')) {
-            showModal('alert', t('title'), t('error_profile'));
-            return;
-        }
-        if (savedProfiles.some(p => p.url === url)) {
-            showModal('alert', t('title'), t('error_exists'));
-            return;
-        }
+        if (!url.includes('/in/')) return showModal('alert', t('title'), t('error_profile'));
+        if (savedProfiles.some(p => p.url === url)) return showModal('alert', t('title'), t('error_exists'));
 
         let name = "Unknown";
         const h1 = document.querySelector('h1');
         if (h1) name = h1.innerText.trim();
-        else {
-            const title = document.title.split('|')[0].trim();
-            if (title) name = title;
-        }
+        else { const title = document.title.split('|')[0].trim(); if(title) name = title; }
 
         savedProfiles.push({ name, url, date: getFormattedDate() });
         saveSettings();
 
         const btn = document.getElementById('lnk-btn-save');
-        if(btn) {
-            const oldTxt = btn.innerText;
-            btn.innerText = t('save_success');
-            btn.style.background = "#198754";
-            setTimeout(() => { btn.innerText = oldTxt; btn.style.background = "#6610f2"; }, 1500);
-        }
-
+        if(btn) { btn.innerText = t('save_success'); btn.style.background = "#198754"; setTimeout(() => { btn.innerText = t('save_btn'); btn.style.background = "#6610f2"; }, 1500); }
         const listBtn = document.getElementById('lnk-btn-list');
         if(listBtn) listBtn.textContent = `${t('list_btn')} (${savedProfiles.length})`;
-    }
-
-    function deleteProfile(index) {
-        savedProfiles.splice(index, 1);
-        saveSettings();
-        renderSavedListView();
     }
 
     function renderMainView() {
@@ -524,76 +386,37 @@
         if(!container) return;
         container.innerHTML = '';
 
-        const infoRow = document.createElement("div");
-        infoRow.style.cssText = "text-align:center; color:#ccc; font-size:12px; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:10px; cursor:pointer;";
-        infoRow.innerHTML = `<span style="color:#fff; font-weight:bold;">${t('total')}: <span id="lnk-counter-val">${totalCount}</span></span> <span style="color:#555;">|</span> <span>${t('last')}: <span id="lnk-last-date" style="color:#fff;">${lastActionDate}</span></span>`;
-        infoRow.onclick = () => {
-            showModal('confirm', t('confirm_reset_title'), t('confirm_reset_msg'), () => {
-                totalCount = 0; lastActionDate = '-'; updateCounterDisplay();
-            });
+        const info = document.createElement("div");
+        info.innerHTML = `<span style="color:#fff; font-weight:bold;">${t('total')}: <span id="lnk-counter-val">${totalCount}</span></span> <span style="color:#555;">|</span> <span>${t('last')}: <span id="lnk-last-date" style="color:#fff;">${lastActionDate}</span></span>`;
+        info.style.cssText = "text-align:center; color:#ccc; font-size:12px; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:10px; cursor:pointer;";
+        info.onclick = () => showModal('confirm', t('confirm_reset_title'), t('confirm_reset_msg'), () => { totalCount=0; lastActionDate='-'; updateCounterDisplay(); });
+
+        const mkBtn = (txt, bg, click) => {
+            const b = document.createElement('button'); b.textContent = txt; b.style.cssText = `border:none; border-radius:6px; padding:10px; cursor:pointer; font-weight:600; font-size:13px; flex-grow:1; color:#fff; background:${bg};`; b.onclick = click; return b;
+        };
+        const mkInp = (val, chg) => {
+            const i = document.createElement('input'); i.type="number"; i.value=val; i.style.cssText = "width:50px; padding:10px; border-radius:6px; border:1px solid #555; background:#222; color:#fff; text-align:center; font-size:13px; -moz-appearance: textfield;"; i.onchange=chg; return i;
         };
 
-        const rowStyle = "display: flex; gap: 10px; align-items: center;";
-        const btnStyle = "border:none; border-radius:6px; padding:10px; cursor:pointer; font-weight:600; font-size:13px; flex-grow:1; color:#fff; text-align:center;";
-        const inputStyle = "width:50px; padding:10px; border-radius:6px; border:1px solid #555; background:#222; color:#fff; text-align:center; font-size:13px; outline:none;";
+        const r1 = document.createElement('div'); r1.style.cssText="display:flex; gap:10px;";
+        r1.append(mkBtn(t('save_btn'), "#6610f2", saveCurrentProfile));
+        const lb = mkBtn(`${t('list_btn')} (${savedProfiles.length})`, "#fd7e14", renderSavedListView); lb.id = "lnk-btn-list"; lb.style.maxWidth = "80px";
+        r1.append(lb);
 
-        const saveRow = document.createElement("div");
-        saveRow.style.cssText = rowStyle;
-        const saveBtn = document.createElement("button");
-        saveBtn.id = "lnk-btn-save";
-        saveBtn.textContent = t('save_btn');
-        saveBtn.style.cssText = btnStyle + "background: #6610f2;";
-        saveBtn.onclick = saveCurrentProfile;
-        const listBtn = document.createElement("button");
-        listBtn.id = "lnk-btn-list";
-        listBtn.textContent = `${t('list_btn')} (${savedProfiles.length})`;
-        listBtn.style.cssText = btnStyle + "background: #fd7e14; max-width: 80px;";
-        listBtn.onclick = renderSavedListView;
-        saveRow.append(saveBtn, listBtn);
+        const r2 = document.createElement('div'); r2.style.cssText="display:flex; gap:10px;";
+        const nb = mkBtn(`${t('note_closer')}: ${isNoteCloserActive ? t('active') : t('passive')}`, isNoteCloserActive?"#198754":"#6c757d", function() { isNoteCloserActive=!isNoteCloserActive; this.textContent=`${t('note_closer')}: ${isNoteCloserActive ? t('active') : t('passive')}`; this.style.background=isNoteCloserActive?"#198754":"#6c757d"; });
+        r2.append(nb, mkInp(speedPopup, (e)=> { speedPopup=parseInt(e.target.value)||100; saveSettings(); }));
 
-        const row1 = document.createElement("div");
-        row1.style.cssText = rowStyle;
-        const noteBtn = document.createElement("button");
-        noteBtn.textContent = `${t('note_closer')}: ${isNoteCloserActive ? t('active') : t('passive')}`;
-        noteBtn.style.cssText = btnStyle + (isNoteCloserActive ? "background: #198754;" : "background: #6c757d;");
-        noteBtn.onclick = () => {
-            isNoteCloserActive = !isNoteCloserActive;
-            noteBtn.textContent = `${t('note_closer')}: ${isNoteCloserActive ? t('active') : t('passive')}`;
-            noteBtn.style.background = isNoteCloserActive ? "#198754" : "#6c757d";
-        };
-        const noteInput = document.createElement("input");
-        noteInput.type = "number"; noteInput.value = speedPopup; noteInput.style.cssText = inputStyle;
-        noteInput.onchange = (e) => { speedPopup = parseInt(e.target.value) || 100; saveSettings(); };
-        row1.append(noteBtn, noteInput);
+        const r3 = document.createElement('div'); r3.style.cssText="display:flex; gap:10px;";
+        const sb = mkBtn(isConnectorRunning?t('stop'):t('start'), isConnectorRunning?"#dc3545":"#0d6efd", function() { if(this.textContent.includes('LİMİT')) return; isConnectorRunning=!isConnectorRunning; this.textContent=isConnectorRunning?t('stop'):t('start'); this.style.background=isConnectorRunning?"#dc3545":"#0d6efd"; });
+        sb.id = "lnk-btn-start";
+        r3.append(sb, mkInp(speedConnect, (e)=> { speedConnect=parseInt(e.target.value)||1000; saveSettings(); }));
 
-        const row2 = document.createElement("div");
-        row2.style.cssText = rowStyle;
-        const startBtn = document.createElement("button");
-        startBtn.id = "lnk-btn-start";
-        startBtn.textContent = isConnectorRunning ? t('stop') : t('start');
-        startBtn.style.cssText = btnStyle + (isConnectorRunning ? "background: #dc3545;" : "background: #0d6efd;");
-        startBtn.onclick = () => {
-            if (startBtn.textContent.includes(t('limit_btn'))) {
-                showModal('alert-error', 'Dikkat', t('alert_limit_msg'));
-                return;
-            }
-            isConnectorRunning = !isConnectorRunning;
-            startBtn.textContent = isConnectorRunning ? t('stop') : t('start');
-            startBtn.style.background = isConnectorRunning ? "#dc3545" : "#0d6efd";
-        };
-        const startInput = document.createElement("input");
-        startInput.type = "number"; startInput.value = speedConnect; startInput.style.cssText = inputStyle;
-        startInput.onchange = (e) => { speedConnect = parseInt(e.target.value) || 1000; saveSettings(); };
-        row2.append(startBtn, startInput);
+        const foot = document.createElement('div');
+        foot.innerHTML = `<a href="${UPDATE_LINK}" target="_blank" style="color:#777; text-decoration:none;">🔄 ${t('update')}</a> <span style="font-style:italic;">tanersb</span>`;
+        foot.style.cssText = "display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#777;";
 
-        const footerRow = document.createElement("div");
-        footerRow.style.cssText = "display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#777;";
-        const updateLink = document.createElement("a");
-        updateLink.href = UPDATE_LINK; updateLink.target = "_blank"; updateLink.style.cssText = "color:#777; text-decoration:none;"; updateLink.innerHTML = `🔄 ${t('update')}`;
-        const signature = document.createElement("div"); signature.textContent = "tanersb"; signature.style.cssText = "font-style:italic;";
-        footerRow.append(updateLink, signature);
-
-        container.append(infoRow, saveRow, row1, row2, footerRow);
+        container.append(info, r1, r2, r3, foot);
     }
 
     function renderSavedListView() {
@@ -601,76 +424,31 @@
         if(!container) return;
         container.innerHTML = '';
 
-        const header = document.createElement("div");
-        header.innerHTML = `<b>${t('list_header')} (${savedProfiles.length})</b>`;
-        header.style.cssText = "text-align:center; padding-bottom:10px; border-bottom:1px solid #444; margin-bottom:10px;";
+        const head = document.createElement('div'); head.innerHTML = `<b>${t('list_header')} (${savedProfiles.length})</b>`; head.style.cssText = "text-align:center; padding-bottom:10px; border-bottom:1px solid #444; margin-bottom:10px;";
+        const list = document.createElement('div'); list.style.cssText = "max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px;";
 
-        const listContainer = document.createElement("div");
-        listContainer.style.cssText = "max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; padding-right:5px;";
-
-        if (savedProfiles.length === 0) {
-            listContainer.innerHTML = `<div style='text-align:center; color:#777; font-style:italic;'>${t('list_empty')}</div>`;
-        } else {
-            savedProfiles.forEach((profile, index) => {
-                const item = document.createElement("div");
-                item.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:#333; padding:8px; border-radius:6px;";
-                const link = document.createElement("a");
-                link.href = profile.url; link.textContent = profile.name; link.target = "_blank";
-                link.style.cssText = "color:#fff; text-decoration:none; font-size:13px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;";
-                const delBtn = document.createElement("button");
-                delBtn.innerHTML = "&times;"; delBtn.style.cssText = "background:none; border:none; color:#ff6b6b; font-size:18px; cursor:pointer;";
-                delBtn.addEventListener('click', () => deleteProfile(index));
-                item.append(link, delBtn);
-                listContainer.append(item);
-            });
-        }
-
-        const btnRow = document.createElement("div");
-        btnRow.style.cssText = "display:flex; gap:5px;";
-
-        const backBtn = document.createElement("button");
-        backBtn.textContent = t('back');
-        backBtn.style.cssText = "flex:1; padding:8px; background:#6c757d; border:none; border-radius:6px; color:white; cursor:pointer; font-size:11px;";
-        backBtn.addEventListener('click', renderMainView);
-
-        const autoAddBtn = document.createElement("button");
-        autoAddBtn.textContent = t('auto_add');
-        autoAddBtn.style.cssText = "flex:2; padding:8px; background:#0dcaf0; border:none; border-radius:6px; color:#000; font-weight:bold; cursor:pointer; font-size:11px; transition:0.2s;";
-        autoAddBtn.addEventListener('click', () => { startAutoAddProcess(); });
-
-        const clearAllBtn = document.createElement("button");
-        clearAllBtn.textContent = t('clear');
-        clearAllBtn.style.cssText = "flex:1; padding:8px; background:#dc3545; border:none; border-radius:6px; color:white; cursor:pointer; font-size:11px; transition:0.2s;";
-        clearAllBtn.addEventListener('click', () => {
-            showModal('confirm', t('confirm_clear_title'), t('confirm_clear_msg'), () => {
-                savedProfiles = [];
-                saveSettings();
-                renderSavedListView();
-            });
+        if(!savedProfiles.length) list.innerHTML = `<div style='text-align:center; color:#777;'>${t('list_empty')}</div>`;
+        else savedProfiles.forEach((p, i) => {
+            const row = document.createElement('div'); row.style.cssText = "display:flex; justify-content:space-between; background:#333; padding:8px; border-radius:6px;";
+            row.innerHTML = `<a href="${p.url}" target="_blank" style="color:#fff; text-decoration:none; font-size:13px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px;">${p.name}</a>`;
+            const d = document.createElement('button'); d.innerHTML = "&times;"; d.style.cssText = "background:none; border:none; color:#ff6b6b; cursor:pointer; font-size:18px;";
+            d.onclick = () => { savedProfiles.splice(i, 1); saveSettings(); renderSavedListView(); };
+            row.appendChild(d); list.appendChild(row);
         });
 
-        btnRow.append(backBtn, autoAddBtn, clearAllBtn);
-        container.append(header, listContainer, btnRow);
+        const acts = document.createElement('div'); acts.style.cssText = "display:flex; gap:5px;";
+        const bBack = document.createElement('button'); bBack.textContent=t('back'); bBack.style.cssText="flex:1; padding:8px; background:#6c757d; border-radius:6px; border:none; color:#fff; cursor:pointer;"; bBack.onclick=renderMainView;
+        const bAuto = document.createElement('button'); bAuto.textContent=t('auto_add'); bAuto.style.cssText="flex:2; padding:8px; background:#0dcaf0; border-radius:6px; border:none; color:#000; font-weight:bold; cursor:pointer;"; bAuto.onclick=startAutoAddProcess;
+        const bClear = document.createElement('button'); bClear.textContent=t('clear'); bClear.style.cssText="flex:1; padding:8px; background:#dc3545; border-radius:6px; border:none; color:#fff; cursor:pointer;"; bClear.onclick=()=>showModal('confirm', t('confirm_clear_title'), t('confirm_clear_msg'), ()=>{ savedProfiles=[]; saveSettings(); renderSavedListView(); });
+
+        acts.append(bBack, bAuto, bClear);
+        container.append(head, list, acts);
     }
 
     function loopPopup() {
         if (isNoteCloserActive) {
-            let sendNowBtn = null;
-            sendNowBtn = findInShadows('button[aria-label="Not olmadan gönderin"]');
-            if (!sendNowBtn) sendNowBtn = findInShadows('button[aria-label="Send without a note"]');
-            if (!sendNowBtn) {
-                const allPrimaryBtns = document.querySelectorAll('.artdeco-button--primary');
-                for(let btn of allPrimaryBtns) {
-                    const txt = btn.innerText.toLowerCase();
-                    if(txt.includes('not olmadan') || txt.includes('without a note')) {
-                        sendNowBtn = btn;
-                        break;
-                    }
-                }
-            }
-            if (sendNowBtn && !sendNowBtn.disabled) {
-                nativeClick(sendNowBtn);
-            }
+            const btn = findTargetButton(['not olmadan', 'without a note']);
+            if (btn) nativeClick(btn);
         }
         setTimeout(loopPopup, speedPopup);
     }
@@ -680,48 +458,18 @@
         if (isConnectorRunning && !isAutoAdding) {
             if (checkWeeklyLimit()) {
                 isConnectorRunning = false;
-                const startBtn = document.getElementById('lnk-btn-start');
-                if (startBtn) {
-                    startBtn.textContent = t('limit_btn');
-                    startBtn.style.background = "#000";
-                    startBtn.style.cursor = "not-allowed";
-                }
+                const sb = document.getElementById('lnk-btn-start'); if(sb) { sb.textContent=t('limit_btn'); sb.style.background="#000"; }
                 showModal('alert-error', t('alert_limit_title'), t('alert_limit_msg'));
                 return;
             }
-
-            const isPopupOpen = findInShadows('div[role="dialog"]') || findInShadows('.artdeco-modal');
-            if (!isPopupOpen) {
-                let targetBtn = null;
-                const allNodes = Array.from(document.querySelectorAll('button, a'));
-
-                targetBtn = allNodes.find(btn => {
-                    if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
-
-                    const txt = (btn.innerText || "").replace(/\s+/g, ' ').trim().toLowerCase();
-                    const label = (btn.getAttribute('aria-label') || "").toLowerCase();
-
-                    if (txt.includes('mesaj') || txt.includes('message')) return false;
-                    if (txt.includes('takip') || txt.includes('follow')) return false;
-                    if (txt.includes('beklemede') || txt.includes('pending') || txt.includes('withdraw')) return false;
-                    if (label.includes('beklemede') || label.includes('withdraw')) return false;
-
-                    if (txt === 'bağlantı kur' || txt === 'connect') return true;
-
-                    if (label.includes('bağlantı kur') || label.includes('davet et') || label.includes('connect') || label.includes('invite')) {
-                        return true;
-                    }
-
-                    return false;
-                });
-
-                if (targetBtn) {
-                    nativeClick(targetBtn);
-                    totalCount++;
-                    lastActionDate = getFormattedDate();
-                    updateCounterDisplay();
+            if (!document.querySelector('.artdeco-modal')) {
+                const pending = findTargetButton(['beklemede', 'pending', 'withdraw']);
+                if(!pending) {
+                    const btn = findTargetButton(['bağlantı kur', 'connect', 'davet et']);
+                    if (btn) { nativeClick(btn); totalCount++; lastActionDate = getFormattedDate(); updateCounterDisplay(); }
+                    else window.scrollBy({ top: 350, behavior: 'smooth' });
                 } else {
-                    window.scrollBy({ top: 350, behavior: 'smooth' });
+                    window.scrollBy({ top: 150, behavior: 'smooth' });
                 }
             }
         }
@@ -733,75 +481,31 @@
         document.querySelectorAll('#lnk-modern-panel').forEach(e => e.remove());
         if (!document.body) return setTimeout(initPanel, 500);
 
-        if (isAutoAdding) processAutoAddStep();
-
         const style = document.createElement('style');
         style.innerHTML = `
-            input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+            input[type=number]::-webkit-inner-spin-button,
+            input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
             input[type=number] { -moz-appearance: textfield; }
-            #lnk-panel-content ::-webkit-scrollbar { width: 5px; }
-            #lnk-panel-content ::-webkit-scrollbar-track { background: #222; }
-            #lnk-panel-content ::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
-            #lnk-modern-panel button:active { transform: scale(0.95); opacity: 0.9; }
-            #lnk-modern-panel button { transition: transform 0.1s ease, background 0.2s; }
         `;
         document.head.appendChild(style);
 
+        if (isAutoAdding) processAutoAddStep();
+
+        const p = document.createElement('div'); p.id = "lnk-modern-panel";
         const isClosed = panelState === 'closed';
-        const panel = document.createElement("div");
-        panel.id = "lnk-modern-panel";
-        panel.style.cssText = `position:fixed; bottom:85px; right:25px; z-index:2147483647; background:rgba(20,20,20,0.95); border:1px solid #555; color:#fff; font-family:system-ui; backdrop-filter:blur(10px); min-width:${isClosed?'auto':'280px'}; border-radius:${isClosed?'30px':'12px'}; transition:all 0.3s;`;
+        p.style.cssText = `position:fixed; bottom:85px; right:25px; z-index:2147483647; background:rgba(20,20,20,0.95); border:1px solid #555; color:#fff; font-family:system-ui; backdrop-filter:blur(10px); transition:all 0.3s; border-radius:${isClosed?'30px':'12px'}; min-width:${isClosed?'auto':'280px'};`;
 
-        const wrapper = document.createElement("div");
-        wrapper.style.display = isClosed ? 'none' : 'block';
-        wrapper.style.padding = "20px";
+        const w = document.createElement('div'); w.style.cssText = `padding:20px; display:${isClosed?'none':'block'};`;
+        w.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span style="font-weight:800; font-size:16px;">${t('title')}</span><div><button id="lnk-lang" style="background:#333; color:#aaa; border:1px solid #555; padding:2px 5px; font-size:10px; cursor:pointer; margin-right:5px;">${currentLang.toUpperCase()}</button><button id="lnk-close" style="background:#333; color:#fff; border:none; border-radius:50%; width:28px; height:28px; cursor:pointer;">&minus;</button></div></div><div id="lnk-panel-content" style="display:flex; flex-direction:column; gap:15px; margin-top:10px;"></div>`;
 
-        const headerRow = document.createElement("div");
-        headerRow.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;";
+        const m = document.createElement('div'); m.textContent = "@tanersb"; m.style.cssText = `padding:20px; cursor:pointer; font-weight:bold; display:${isClosed?'flex':'none'};`;
+        m.onclick = () => { m.style.display="none"; w.style.display="block"; p.style.minWidth="280px"; p.style.borderRadius="12px"; localStorage.setItem('LnAuto_PanelState', 'open'); };
 
-        const title = document.createElement("div");
-        title.textContent = t('title');
-        title.style.cssText = "font-weight:800; font-size:16px;";
+        p.append(w, m); document.body.appendChild(p);
 
-        const controlsDiv = document.createElement("div");
-        controlsDiv.style.display = "flex";
-        controlsDiv.style.gap = "8px";
-        controlsDiv.style.alignItems = "center";
+        document.getElementById('lnk-close').onclick = () => { w.style.display="none"; m.style.display="flex"; p.style.minWidth="auto"; p.style.borderRadius="30px"; localStorage.setItem('LnAuto_PanelState', 'closed'); };
+        document.getElementById('lnk-lang').onclick = () => { currentLang = currentLang==='tr'?'en':'tr'; saveSettings(); p.remove(); initPanel(); };
 
-        const langBtn = document.createElement("button");
-        langBtn.textContent = currentLang.toUpperCase();
-        langBtn.title = "Change Language / Dili Değiştir";
-        langBtn.style.cssText = "background: #333; color: #aaa; border: 1px solid #555; border-radius: 4px; font-size: 10px; padding: 2px 5px; cursor: pointer; font-weight:bold;";
-        langBtn.onclick = (e) => {
-            e.stopPropagation();
-            currentLang = currentLang === 'tr' ? 'en' : 'tr';
-            saveSettings();
-            panel.remove();
-            initPanel();
-        };
-
-        const closeBtn = document.createElement("button");
-        closeBtn.innerHTML = "&minus;";
-        closeBtn.style.cssText = "background:#333; color:#fff; border:none; border-radius:50%; width:28px; height:28px; cursor:pointer;";
-
-        controlsDiv.append(langBtn, closeBtn);
-
-        const dynamicContent = document.createElement("div");
-        dynamicContent.id = "lnk-panel-content";
-        dynamicContent.style.cssText = "display:flex; flex-direction:column; gap:15px; margin-top:10px;";
-
-        headerRow.append(title, controlsDiv);
-        wrapper.append(headerRow, dynamicContent);
-
-        const miniView = document.createElement("div");
-        miniView.textContent = "@tanersb";
-        miniView.style.cssText = `padding:20px; cursor:pointer; font-weight:bold; display:${isClosed?'flex':'none'};`;
-
-        miniView.onclick = () => { miniView.style.display="none"; wrapper.style.display="block"; panel.style.minWidth="280px"; panel.style.borderRadius="12px"; localStorage.setItem('LnAuto_PanelState', 'open'); };
-        closeBtn.onclick = (e) => { e.stopPropagation(); wrapper.style.display="none"; miniView.style.display="flex"; panel.style.minWidth="auto"; panel.style.borderRadius="30px"; localStorage.setItem('LnAuto_PanelState', 'closed'); };
-
-        panel.append(wrapper, miniView);
-        document.body.appendChild(panel);
         renderMainView();
     }
     initPanel();
